@@ -3,12 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>单图故事卡编辑 · 引力场</title>
+  <title>单图故事卡编辑 · 上个钩</title>
   <link rel="stylesheet" href="./poster-editor.css?v=3" />
+  <link rel="icon" href="./assets/design-preview/kanshan/app-icon-blue-v7.png">
+  <link rel="stylesheet" href="./studio-theme.css?v=1">
 </head>
-<body>
+<body class="poster-editor-page">
   <header class="topbar">
-    <div class="brand"><span>引</span><div><b>单图故事卡编辑</b><small>把传播文案排成适合阅读的画面</small></div></div>
+    <div class="brand"><img class="brand-icon" src="./assets/design-preview/kanshan/app-icon-blue-v7.png" width="40" height="40" alt=""><div><b>单图故事卡编辑</b><small>把传播文案排成适合阅读的画面</small></div></div>
     <span class="save-state" id="saveState">尚未保存</span>
     <button class="save-button" id="saveBtn" type="button">保存</button>
     <button class="return-button" id="backBtn" type="button" disabled>返回</button>
@@ -17,7 +19,7 @@
   <main class="editor-shell">
     <aside class="controls">
       <section>
-        <div class="section-head"><div><b>1. 选择表现形式</b><small>不是换皮，是不同的阅读节奏</small></div></div>
+        <div class="section-head"><div><b>1. 选择表现形式</b><small>选择适合故事节奏的排版</small></div></div>
         <div class="style-grid" id="styleList"></div>
       </section>
 

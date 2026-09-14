@@ -4,17 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#f4f5f2" />
-  <title>引力场 · 知乎故事站外宣发助手</title>
+  <title>上个钩 · 为好故事找到吸引力</title>
   <link rel="stylesheet" href="./styles.css?v=43" />
   <link rel="stylesheet" href="./poster-entry.css?v=1" />
   <link rel="stylesheet" href="./poster-flow.css?v=1" />
+  <link rel="icon" href="./assets/design-preview/kanshan/app-icon-blue-v7.png">
+  <link rel="stylesheet" href="./studio-theme.css?v=1">
 </head>
 <body>
+  <a class="skip-link" href="#main">跳到创作内容</a>
   <header class="topbar">
-    <a class="brand" href="#" data-action="go-input"><span>引</span><b>引力场</b><small>知乎故事站外宣发助手</small></a>
-    <div class="service-state" id="serviceState"><i aria-hidden="true"></i><span>正在检查服务</span><button class="text-button" id="serviceDetailsBtn" type="button">查看详情</button></div>
+    <a class="brand" href="#" data-action="go-input"><img class="brand-icon" src="./assets/design-preview/kanshan/app-icon-blue-v7.png" width="40" height="40" alt=""><b>上个钩</b><small>为好故事找到吸引力</small></a>
+    <div class="service-state" id="serviceState"><i aria-hidden="true"></i><span>正在检查服务</span><button class="text-button" id="motionToggle" type="button" aria-pressed="false">暂停动画</button><button class="text-button" id="serviceDetailsBtn" type="button">查看详情</button></div>
   </header>
-  <main class="shell">
+  <main class="shell" id="main">
     <nav class="steps" aria-label="制作进度" id="stepNav">
       <span class="mobile-step-label" id="mobileStepLabel"></span>
       <button data-step="input" type="button"><b>1</b><span>导入故事</span></button>
@@ -25,13 +28,13 @@
     </nav>
 
     <section class="page" data-page="input">
-      <div class="page-head"><div><small>第 1 步，共 5 步</small><h1>导入你的故事</h1><p>我们只依据正文生成，不补写原作中没有的人物、关系和情节。</p></div><span class="limit" id="charCount">0 / 50,000</span></div>
-      <aside class="data-notice" aria-labelledby="dataNoticeTitle"><b id="dataNoticeTitle">上传前请确认</b><p>为生成传播文案和图片，我们会将你提交的正文发送给已配置的 AI 服务处理。本次 Demo 会保存生成进度，正文和生成文件将在 24 小时后删除。请勿提交未获授权或含有个人隐私的内容。</p></aside>
+      <div id="inputCompanion" class="kanshan-host" data-kanshan="empty" role="img"><img class="kanshan-fallback" src="./assets/design-preview/kanshan/empty-hd.png" alt="刘看山创作搭档"></div><div class="page-head"><div><small>第 1 步，共 5 步</small><h1>导入你的故事</h1><p>根据正文准备传播文案和宣传素材。生成内容可能有偏差，请在发布前复核。</p></div><span class="limit" id="charCount">0 / 50,000</span></div>
+      <aside class="data-notice" aria-labelledby="dataNoticeTitle"><b id="dataNoticeTitle">上传前请确认</b><p>为生成传播文案和图片，我们会将你提交的正文发送给已配置的 AI 服务处理。作品和生成文件会临时保存，保存期限请查看服务详情。请勿提交未获授权或含有个人隐私的内容。</p></aside>
       <div class="input-grid">
         <div class="card form-card">
           <label>作品名<input id="titleInput" maxlength="100" autocomplete="off" placeholder="请输入作品名" /></label>
           <label>作者署名 <em>将显示在导出的图片和发布说明中</em><input id="authorInput" maxlength="80" autocomplete="off" placeholder="请输入作者署名" /></label>
-          <label>知乎原作链接 <em>发布素材需要带回原作入口</em><input id="sourceUrlInput" type="url" aria-describedby="sourceUrlError" placeholder="https://www.zhihu.com/..." /><span class="inline-error" id="sourceUrlError"></span></label>
+          <label>知乎原作链接 <em>生成时可暂不填写；下载发布包前需要补充原作链接。</em><input id="sourceUrlInput" type="url" aria-describedby="sourceUrlError" placeholder="https://www.zhihu.com/..." /><span class="inline-error" id="sourceUrlError"></span></label>
           <label>使用授权样例 <em>选择后自动填入正文，仅用于体验</em><select id="sampleSelect"><option value="">不载入样例</option></select></label>
           <label class="check"><input id="authorizationInput" type="checkbox" /> 我确认有权将这篇作品用于 AI 生成和站外宣传。</label>
           <button class="button danger-outline" id="deleteProjectBtn" type="button" hidden>删除作品及生成记录</button>
@@ -39,27 +42,26 @@
         <div class="card story-card">
           <div class="story-toolbar"><b>故事正文</b><span>支持 TXT、Markdown、DOCX</span><div><button class="text-button" id="pasteBtn" type="button">粘贴</button><button class="text-button" id="uploadBtn" type="button">上传文件</button></div></div>
           <input id="fileInput" type="file" accept=".txt,.md,.markdown,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
-          <textarea id="bodyInput" placeholder="在这里粘贴完整短篇正文。超过 50,000 个非空白字符时会阻止分析，不会截断。"></textarea>
-          <p class="field-error" id="inputError" role="alert"></p>
+          <textarea id="bodyInput" placeholder="粘贴完整故事正文" aria-describedby="bodyHelp"></textarea>
+          <p id="bodyHelp" class="field-help">最多 50,000 个非空白字符，超出后请删减，不会自动截断。正文不会保存到浏览器，刷新前请保留原稿。</p><p class="field-error" id="inputError" role="alert"></p>
         </div>
       </div>
-      <div class="page-actions"><span></span><button class="button primary" id="analyzeBtn" type="button">生成传播文案</button></div>
+      <div class="page-actions"><span></span><button class="button primary" id="analyzeBtn" type="button">理解故事并生成文案</button></div>
     </section>
 
     <section class="page" data-page="analysis" hidden>
       <div class="analysis-loading card">
-        <div class="analysis-spinner" aria-hidden="true"></div>
-        <small>正在阅读故事</small>
+        <div id="analysisCompanion" class="kanshan-host" data-kanshan="fishing" role="img"><img class="kanshan-fallback" src="./assets/design-preview/kanshan/fishing-hd.png" alt="刘看山创作搭档"></div>
         <h1>正在准备传播文案</h1>
-        <p id="analysisPhase">正在建立人物、事件与证据索引…</p>
+        <p id="analysisPhase">正在理解故事并准备传播文案</p>
         <div class="progress-track"><i id="analysisBar"></i></div>
-        <strong id="analysisPercent">8%</strong>
-        <div class="analysis-note"><b>请稍候</b><span>长故事可能需要几分钟，请保持本页打开。</span></div>
+        <strong id="analysisPercent" hidden>生成中</strong>
+        <div class="analysis-note"><span>长故事可能需要几分钟，请勿刷新页面。完成后会自动展示文案。</span></div>
       </div>
     </section>
 
     <section class="page" data-page="hooks" hidden>
-      <div class="page-head"><div><small>第 2 步，共 5 步</small><h1>确定传播文案</h1><p>选择最符合原作的一版。你可以先编辑，我们会再次检查事实和剧透风险。</p></div><button class="button ghost" data-action="go-input" type="button">返回故事</button></div>
+      <div id="hookCompanion" class="kanshan-host" data-kanshan="brand" role="img"><img class="kanshan-fallback" src="./assets/design-preview/kanshan/brand-hd.png" alt="刘看山创作搭档"></div><div class="page-head"><div><small>第 2 步，共 5 步</small><h1>确定传播文案</h1><p>选择最符合原作的一版。你可以先编辑，我们会再次检查事实和剧透风险。</p></div><button class="button ghost" data-action="go-input" type="button">返回故事</button></div>
       <div class="analysis-summary card" id="analysisSummary"></div>
       <div class="hook-grid" id="hookGrid"></div>
       <div class="card editor-card">
@@ -84,7 +86,7 @@
     <section class="page" data-page="style" hidden>
       <div class="page-head"><div><small>连续漫画设置</small><h1>选择漫画画风</h1><p>选择一种画面风格，所有页面会保持统一。</p></div><button class="button ghost" data-action="go-action" type="button">返回修改</button></div>
       <div class="style-grid" id="styleGrid"></div>
-      <div class="page-actions"><span id="styleHint">请选择一种画风</span><button class="button primary" id="startComicBtn" type="button" disabled>查看生成预案</button></div>
+      <div class="page-actions"><span id="styleHint">请选择一种画风</span><button class="button primary" id="startComicBtn" type="button" disabled>查看生成设置</button></div>
     </section>
 
     <section class="page" data-page="background" hidden>
@@ -96,7 +98,7 @@
     </section>
 
     <section class="page" data-page="progress" hidden>
-      <div class="page-head"><div><small>第 4 步，共 5 步</small><h1>正在生成宣传素材</h1><p id="progressSubtitle">你可以离开本页，生成完成后仍能在这篇作品中查看结果。</p></div><span class="status-badge" id="taskStatusBadge">等待开始</span></div>
+      <div id="taskCompanion" class="kanshan-host" data-kanshan="storyboard" role="img"><img class="kanshan-fallback" src="./assets/design-preview/kanshan/storyboard-hd.png" alt="刘看山创作搭档"></div><div class="page-head"><div><small>第 4 步，共 5 步</small><h1>正在生成宣传素材</h1><p id="progressSubtitle">你可以离开本页，生成完成后仍能在这篇作品中查看结果。</p></div><span class="status-badge" id="taskStatusBadge">等待开始</span></div>
       <div class="card progress-card">
         <div class="progress-main"><span id="progressPercent">0%</span><div><b id="progressTitle">任务已排队</b><p id="progressMessage">等待服务开始处理</p></div></div>
         <div class="progress-track"><i id="progressBar"></i></div>
@@ -106,16 +108,16 @@
     </section>
 
     <section class="page" data-page="result" hidden>
-      <div class="page-head"><div><small>第 5 步，共 5 步</small><h1>复核并导出</h1><p>发布前请检查人物、情节、文字和原作信息。AI 生成内容可能出现偏差。</p></div><span class="status-badge" id="resultStatusBadge">已完成</span></div>
+      <div id="resultCompanion" class="kanshan-host" data-kanshan="success" role="img"><img class="kanshan-fallback" src="./assets/design-preview/kanshan/success-hd.png" alt="刘看山创作搭档"></div><div class="page-head"><div><small>第 5 步，共 5 步</small><h1>复核并导出</h1><p>发布前请检查人物、情节、文字和原作信息。AI 生成内容可能出现偏差。</p></div><span class="status-badge" id="resultStatusBadge">已完成</span></div>
       <div class="result-grid">
         <section class="card"><div class="section-title"><h2 id="visualResultTitle">宣传素材</h2><span id="assetCount"></span></div><div class="visual-results" id="visualResults"></div></section>
         <aside class="card result-side">
           <div><small>已确认的传播文案</small><pre id="publishCopy"></pre><button class="text-button" id="copyResultHookBtn" type="button">复制文案</button></div>
           <div class="audio-box"><small>配乐</small><strong id="musicPreset"></strong><button id="bgmPlayBtn" class="button ghost" type="button" hidden>试听配乐</button><p id="audioState"></p></div>
-          <div class="video-box"><small>视频预览 · 图片 + BGM</small><video id="videoPreview" controls playsinline hidden></video><button class="button ghost full" id="buildVideoBtn" type="button">生成视频预览</button><a class="button primary full" id="videoDownloadLink" href="#" download hidden>下载视频 WebM</a><p id="videoState">生成后可在此预览并下载。</p></div>
+          <div class="video-box"><small>视频预览 · 图片 + 配乐</small><video id="videoPreview" controls playsinline hidden></video><button class="button ghost full" id="buildVideoBtn" type="button">生成视频预览</button><a class="button primary full" id="videoDownloadLink" href="#" download hidden>下载视频 WebM</a><p id="videoState">生成后可在此预览并下载。</p></div>
           <div class="export-warning" id="exportWarning"></div>
           <a class="button poster-editor-entry full" id="posterEditorLink" href="./poster-editor.html" target="_blank" rel="noopener" hidden><span>重新编辑单图故事卡</span><small>浮窗短句、便签、时间轴、字幕等 6 种样式</small></a>
-          <button class="button primary full" id="exportPackageBtn" type="button">准备下载</button>
+          <button class="button primary full" id="exportPackageBtn" type="button">准备发布包</button>
           <a class="button primary full" id="packageDownloadLink" href="#" download hidden>下载宣传素材包</a>
           <button class="button ghost full" id="otherMaterialBtn" type="button">继续制作其他形式</button>
           <div id="historyWrap" hidden><small>历史宣传素材</small><div class="history-list" id="historyList"></div></div>
@@ -123,12 +125,13 @@
       </div>
     </section>
   </main>
-  <dialog id="preflightDialog"><h2 id="preflightTitle">生成预案</h2><div id="preflightContent"></div><label class="music-option compact"><input id="preflightMusicInput" type="checkbox"><span><b>同时生成约 20 秒纯音乐配乐</b><small>配乐会增加等待时间，失败不影响图片。</small></span></label><div><button class="button ghost" id="preflightBackBtn" type="button">返回修改</button><button class="button primary" id="preflightConfirmBtn" type="button">开始生成</button></div></dialog>
+  <dialog id="preflightDialog"><h2 id="preflightTitle">生成前确认</h2><div id="preflightContent"></div><label class="music-option compact"><input id="preflightMusicInput" type="checkbox"><span><b>同时生成约 20 秒纯音乐配乐</b><small>配乐会增加等待时间，失败不影响图片。</small></span></label><div><button class="button ghost" id="preflightBackBtn" type="button">返回修改</button><button class="button primary" id="preflightConfirmBtn" type="button">开始生成</button></div></dialog>
   <dialog id="backHookDialog"><h2>返回修改传播文案？</h2><p>已生成的图片和配乐会保留在历史版本中。确认新文案后，需要重新生成宣传素材。</p><div><button class="button ghost" data-close-dialog="backHookDialog" type="button">留在当前页面</button><button class="button primary" id="confirmBackHookBtn" type="button">返回修改</button></div></dialog>
   <dialog id="deleteDialog"><h2>删除这篇作品？</h2><p>正文、分析结果、生成图片、配乐和发布包都将删除。已经下载到本机的文件不会受到影响。</p><div><button class="button ghost" data-close-dialog="deleteDialog" type="button">保留作品</button><button class="button danger" id="confirmDeleteBtn" type="button">确认删除</button></div></dialog>
   <dialog id="serviceDialog"><h2>服务详情</h2><p id="serviceDetailsText"></p><div><button class="button primary" data-close-dialog="serviceDialog" type="button">知道了</button></div></dialog>
   <dialog id="issueDialog"><h2 id="issueDialogTitle">这页有什么问题？</h2><label>问题类型<select id="issueTypeInput"><option>人物不一致</option><option>动作或情节不准确</option><option>场景不符合原作</option><option>文字遮挡或难以阅读</option><option>画面存在异常</option><option>其他问题</option></select></label><label>补充说明<textarea id="issueNoteInput" placeholder="请指出需要保留和需要修正的内容，例如“保留人物服装，只修正手中的物品”。"></textarea></label><p id="issueConfirmText"></p><div><button class="button ghost" data-close-dialog="issueDialog" type="button">取消</button><button class="button primary" id="regenerateAssetBtn" type="button">重新生成</button></div></dialog>
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+  <script src="./studio-ui.js"></script>
   <script type="module" src="./app.js?v=47"></script>
 </body>
 </html>

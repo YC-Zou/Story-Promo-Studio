@@ -133,6 +133,17 @@ async function readBinary(req, maxBytes = 32 * 1024 * 1024) {
   return Buffer.concat(chunks);
 }
 function nonWhitespaceLength(text) { return String(text || "").replace(/\s/g, "").length; }
+function truncateNonWhitespace(text, limit) {
+  let output = "", count = 0;
+  for (const char of String(text || "")) {
+    if (!/\s/u.test(char)) {
+      if (count >= limit) break;
+      count += 1;
+    }
+    output += char;
+  }
+  return output.trim();
+}
 function clamp(value, min, max) { return Math.max(min, Math.min(max, Number(value) || 0)); }
 function round(value) { return Math.round(value * 10) / 10; }
 function renderLines(lines) { return lines.map(line => ["dialogue"].includes(line.type) ? `「${line.text}」` : ["message", "system"].includes(line.type) ? `【${line.text}】` : line.text).join("\n"); }
@@ -219,7 +230,7 @@ async function readStreamedChat(response) {
   return content;
 }
 async function callChat(prompt) {
-  if (!textApiKey) throw error("真实钩子模型未配置：请通过 start.ps1 启动，或设置 OPENAI_API_KEY / OPENAI_NEXT_API_KEY", 503);
+  if (!textApiKey) throw error("模型服务尚未配置：请运行首次配置入口，或设置 OPENAI_API_KEY / OPENAI_NEXT_API_KEY", 503);
   let lastError;
   for (let attempt=0; attempt<2; attempt++) try {
     const response = await fetch(`${textBaseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${textApiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: hookModel, messages: [{ role: "user", content: prompt }], response_format: { type: "json_object" }, stream:true, temperature:.2, reasoning_effort:"low", max_tokens:5000 }), signal:AbortSignal.timeout(600000) });
@@ -308,6 +319,9 @@ async function auditAndRepairCandidates(result,input) {
 function validateModelResult(result) {
   const issues = [];
   if (!result?.content_analysis?.evidence_pool?.length) issues.push("缺少 evidence_pool");
+  for (const evidence of result?.content_analysis?.evidence_pool || []) {
+    if (nonWhitespaceLength(evidence.quote) > 25) evidence.quote = truncateNonWhitespace(evidence.quote, 25);
+  }
   if (!Array.isArray(result.hook_type_scores) || result.hook_type_scores.length !== 5 || new Set(result.hook_type_scores.map(item => item.hook_type)).size !== 5) issues.push("hook_type_scores 必须是五个不同类型");
   if (!Array.isArray(result.candidate_plan) || !Array.isArray(result.candidates) || result.candidate_plan.length !== 3 || result.candidates.length !== 3) issues.push("candidate_plan 与 candidates 必须各有三项");
   if (new Set((result.candidate_plan || []).map(item=>item.hook_type)).size !== 3) issues.push("candidate_plan 的三种 hook_type 必须互不重复");
