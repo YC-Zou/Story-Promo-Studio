@@ -76,6 +76,12 @@
   function addText(text, options = {}) {
     return new fabric.Textbox(text, { fontFamily:"Microsoft YaHei", splitByGrapheme:true, fill:"#fff", fontSize:20, lineHeight:1.25, ...options });
   }
+  function fittedText(text, options, maxHeight, minSize = 18) {
+    const box = addText(text, options); let size = Number(box.fontSize) || 20;
+    box.initDimensions();
+    while (box.height > maxHeight && size > minSize) { size -= 1; box.set({ fontSize:size }); box.initDimensions(); }
+    return box;
+  }
   function addHeader() {
     const title = task.bundle?.project_metadata?.title || "故事";
     canvas.add(lock(new fabric.Text(`STORY  /  《${title}》`, { left:30, top:27, fontFamily:"Arial", fontSize:10, fontWeight:"700", charSpacing:90, fill:"rgba(255,255,255,.78)" })));
@@ -113,10 +119,10 @@
   }
   function layoutSubtitle() {
     canvas.add(lock(new fabric.Rect({ left:0, top:365, width:W, height:310, fill:"rgba(5,8,12,.64)" })));
-    const lead = design.lines[0] || "";
-    canvas.add(decorate(addText(lead, { left:45, top:397, width:450, fontSize:31, fontWeight:"800", textAlign:"center" }), "line-0"));
-    const rest = design.lines.slice(1).join("\n");
-    canvas.add(decorate(addText(rest, { left:64, top:485, width:412, fontSize:18, lineHeight:1.55, textAlign:"center", fill:"rgba(255,255,255,.88)" }), "line-rest"));
+    const articleTitle = task.bundle?.project_metadata?.title || "故事";
+    canvas.add(decorate(fittedText(`《${articleTitle}》`, { left:45, top:397, width:450, fontSize:31, fontWeight:"800", textAlign:"center" }, 55, 22), "article-title"));
+    const hookCopy = design.lines.join("\n");
+    canvas.add(decorate(fittedText(hookCopy, { left:64, top:485, width:412, fontSize:18, lineHeight:1.55, textAlign:"center", fill:"rgba(255,255,255,.88)" }, 165, 14), "hook-copy"));
     canvas.add(lock(new fabric.Rect({ left:205, top:462, width:130, height:3, rx:2, fill:design.accent })));
   }
   function layoutPaper() {
@@ -126,11 +132,12 @@
     canvas.add(lock(new fabric.Rect({ left:88, top:158, width:54, height:3, fill:design.accent })));
   }
   function layoutImpact() {
-    const first = design.lines[0] || "", second = design.lines[1] || "";
-    canvas.add(decorate(addText(first, { left:38, top:105, width:455, fontSize:43, lineHeight:1.08, fontWeight:"900" }), "line-0"));
-    if (second) canvas.add(decorate(addText(second, { left:38, top:218, width:445, fontSize:35, lineHeight:1.12, fontWeight:"850", fill:design.accent }), "line-1"));
-    const rest = design.lines.slice(2);
-    rest.forEach((line,index) => canvas.add(bubble(line,index+2,index%2 ? 105 : 58,345+index*75)));
+    const articleTitle = task.bundle?.project_metadata?.title || "故事";
+    const lead = design.lines[0] || "";
+    canvas.add(decorate(fittedText(`《${articleTitle}》`, { left:38, top:92, width:455, fontSize:43, lineHeight:1.08, fontWeight:"900" }, 100, 26), "article-title"));
+    if (lead) canvas.add(decorate(fittedText(lead, { left:38, top:218, width:445, fontSize:31, lineHeight:1.12, fontWeight:"850", fill:design.accent }, 82, 22), "line-0"));
+    const rest = design.lines.slice(1);
+    rest.forEach((line,index) => canvas.add(bubble(line,index+1,index%2 ? 105 : 58,330+index*67)));
   }
   function compose() {
     canvas.add(lock(new fabric.Rect({ left:0, top:0, width:W, height:H, fill:tones[design.tone] || tones.cinema })));
