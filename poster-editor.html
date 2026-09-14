@@ -11,6 +11,8 @@
     <a class="brand" href="./"><span>引</span><div><b>宣传图样式编辑</b><small>把故事钩子排成适合传播的画面</small></div></a>
     <div class="history"><button id="undoBtn" type="button" title="撤销 Ctrl+Z">↶</button><button id="redoBtn" type="button" title="重做 Ctrl+Y">↷</button></div>
     <span class="save-state" id="saveState">正在载入…</span>
+    <button class="return-button" id="backBtn" type="button">返回</button>
+    <button class="save-button" id="saveReturnBtn" type="button">保存并返回</button>
     <button class="export" id="exportBtn" type="button">导出高清 PNG</button>
   </header>
 
@@ -29,10 +31,7 @@
 
       <section>
         <div class="section-head"><div><b>3. 调整画面气质</b><small>先保证文字清楚，再追求氛围</small></div></div>
-        <div class="field-row">
-          <label>画面滤镜<select id="toneSelect"><option value="cinema">电影暗调</option><option value="cool">冷蓝夜色</option><option value="warm">暖色回忆</option><option value="mono">黑白纪实</option><option value="clear">通透明亮</option></select></label>
-          <label>强调色<input id="accentColor" type="color" value="#ffffff" /></label>
-        </div>
+        <label class="tone-field">画面滤镜<select id="toneSelect"><option value="cinema">电影暗调</option><option value="cool">冷蓝夜色</option><option value="warm">暖色回忆</option><option value="mono">黑白纪实</option><option value="clear">通透明亮</option></select></label>
       </section>
 
       <section>
@@ -52,6 +51,6 @@
 
   <div class="toast" id="editorToast" role="status" aria-live="polite"></div>
   <script src="./third_party/fabric/fabric.min.js"></script>
-  <script src="./poster-editor.js?v=3"></script>
+  <script src="./poster-editor.js?v=4"></script>
 </body>
 </html>

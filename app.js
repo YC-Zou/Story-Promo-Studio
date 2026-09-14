@@ -36,6 +36,7 @@ const blankState = () => ({
   backgrounds: [],
   backgroundId: "",
   backgroundFilter: "all",
+  posterDesign: null,
   task: null,
   history: [],
 });
@@ -73,6 +74,7 @@ function saveState() {
 }
 
 function countChars(text = "") { return String(text).replace(/[\s]/g, "").length; }
+function stripPosterPunctuation(text = "") { return String(text).replace(/[，。！？；：、,.!?;:"“”‘’（）()【】《》〈〉—…·~～\-]/gu, "").trim(); }
 function groupShortLines(lines, maxGroups = 6) {
   let parts = (lines || []).flatMap(line => String(line.text || "").match(/[^。！？!?；;，,：:\n]+[。！？!?；;，,：:]?|\n+/g) || [String(line.text || "")]).filter(part => part && !/^\n+$/.test(part));
   while (parts.length > maxGroups) {
@@ -332,6 +334,7 @@ async function confirmHook() {
     if (result.selected_hook_profile.validation_status !== "passed") return;
     state.selectedHook = result.selected_hook_profile;
     state.recommendation = result.material_recommendation;
+    state.posterDesign = null;
     state.hookDirty = false;
     saveState();
     renderAction();
@@ -353,6 +356,7 @@ function renderAction() {
 async function chooseMaterial(type) {
   state.materialType = type;
   state.backgroundId = "";
+  state.posterDesign = null;
   saveState();
   if (type === "comic") { renderStyles(); return showPage("style"); }
   try {
@@ -367,15 +371,20 @@ async function chooseMaterial(type) {
 
 function renderBackgrounds() {
   if (!state.backgrounds.length) return;
-  const shortText = groupShortLines(state.selectedHook?.selected_lines || []).join("\n");
+  const shortText = groupShortLines(state.selectedHook?.selected_lines || []).map(stripPosterPunctuation).join("\n");
   const visible = state.backgrounds.filter(item => state.backgroundFilter === "all" || state.backgroundFilter === "recommended" && item.recommended || item.dimension === state.backgroundFilter);
   $("#backgroundGrid").innerHTML = visible.map(item => `<button class="background-option${item.id === state.backgroundId ? " is-selected" : ""}" data-background="${escapeAttr(item.id)}" type="button"><div class="background-art" style="--bg:${escapeAttr(item.css_background)}"><img src="${escapeAttr(item.thumbnail_url)}" alt="${escapeAttr(item.name)}底图"><span class="background-badge">${item.recommended ? "AI 相关" : item.dimension === "genre" ? "题材" : "时空"}</span><pre>${escapeHtml(shortText)}</pre></div><footer><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small></footer></button>`).join("");
   $$('[data-background]').forEach(button => button.onclick = () => {
     state.backgroundId = button.dataset.background;
+    if (state.posterDesign?.backgroundId !== state.backgroundId) state.posterDesign = null;
     saveState(); renderBackgrounds();
   });
+  const saved = state.posterDesign && state.posterDesign.backgroundId === state.backgroundId && state.posterDesign.previewDataUrl;
+  $("#posterDraftPreview").hidden = !saved;
+  if (saved) { $("#posterDraftImage").src = state.posterDesign.previewDataUrl; $("#posterDraftStyle").textContent = state.posterDesign.styleName || "宣传图定稿"; }
   $("#startCardBtn").disabled = !state.backgroundId;
-  $("#backgroundHint").textContent = state.backgroundId ? "已选择 1 张底图" : "请选择一张底图";
+  $("#startCardBtn").textContent = saved ? "使用这版定稿生成" : "下一步：编辑宣传图";
+  $("#backgroundHint").textContent = saved ? "排版已保存，可以生成" : state.backgroundId ? "底图已选择，请继续编辑排版" : "请选择一张底图";
   $$('[data-bg-filter]').forEach(button => button.classList.toggle("is-active", button.dataset.bgFilter === state.backgroundFilter));
 }
 
@@ -387,11 +396,19 @@ function renderStyles() {
   $("#styleHint").textContent = state.comicStyleId ? `已选择：${COMIC_STYLES.find(item => item.id === state.comicStyleId)?.name}` : "请选择一种画风";
 }
 
+function openPosterEditor() {
+  if (!state.backgroundId) return toast("请先选择底图");
+  state.page = "background";
+  saveState();
+  location.href = "./poster-editor.html?mode=draft";
+}
+
 async function startGeneration(type = state.materialType) {
   if (!state.selectedHook || state.hookDirty) return toast("请先确认有效钩子");
   if (type === "card" && !state.backgroundId) return toast("请先选择底图");
   if (type === "comic" && !state.comicStyleId) return toast("请先选择漫画画风");
-  const payload = { selected_type: type, background_id: type === "card" ? state.backgroundId : undefined, comic_style: type === "comic" ? state.comicStyleId : undefined, simulate_failure: simulatedFailure };
+  const posterDesign = type === "card" && state.posterDesign ? { style:state.posterDesign.style, style_name:state.posterDesign.styleName, tone:state.posterDesign.tone, lines:state.posterDesign.lines, positions:state.posterDesign.positions } : undefined;
+  const payload = { selected_type: type, background_id: type === "card" ? state.backgroundId : undefined, comic_style: type === "comic" ? state.comicStyleId : undefined, poster_design:posterDesign, poster_image_data_url:type === "card" ? state.posterDesign?.previewDataUrl : undefined, simulate_failure: simulatedFailure };
   simulatedFailure = "";
   try {
     if (state.task && ["succeeded","partially_failed","failed"].includes(state.task.status) && !state.history.some(item => item.id === state.task.id)) state.history.push(clone(state.task));
@@ -466,14 +483,15 @@ function renderResult() {
   const metadata = task.bundle?.project_metadata || { title:state.project.title, author:state.project.author, source_url:state.project.sourceUrl };
   const posterEditorLink = $("#posterEditorLink");
   posterEditorLink.hidden = resultType !== "card" || !pages.length;
-  if (!posterEditorLink.hidden) posterEditorLink.href = `./poster-editor.html?task_id=${encodeURIComponent(task.id)}&asset=0`;
+  if (!posterEditorLink.hidden) posterEditorLink.href = "./poster-editor.html?mode=draft";
   $("#visualResultTitle").textContent = resultType === "comic" ? `连续漫画${task.bundle?.comic_style?.label ? ` · ${task.bundle.comic_style.label}` : ""}` : "单图宣传卡";
   $("#assetCount").textContent = `${pages.length} 张`;
+  $("#visualResults").classList.toggle("is-card", resultType === "card");
   $("#visualResults").innerHTML = pages.map((asset, index) => {
     const source=asset.image_url||asset.background_asset_url, isComic=resultType==="comic"&&asset.panels?.length;
-    const copy=isComic ? `<div class="comic-page-overlay" style="--panels:${asset.panels.length}">${asset.panels.map(panel=>`<div class="comic-panel-copy is-${escapeAttr(panel.type)}"><span>${escapeHtml(panel.text)}</span></div>`).join("")}</div>` : `<pre>${escapeHtml(asset.text)}</pre>`;
+    const copy=isComic ? `<div class="comic-page-overlay" style="--panels:${asset.panels.length}">${asset.panels.map(panel=>`<div class="comic-panel-copy is-${escapeAttr(panel.type)}"><span>${escapeHtml(panel.text)}</span></div>`).join("")}</div>` : asset.prepared_poster ? "" : `<pre>${escapeHtml(asset.text)}</pre>`;
     const downloadLabel=resultType === "comic" ? `第 ${index + 1} 页` : "宣传图";
-    return `<article class="visual-result"><div class="visual-canvas${isComic?" is-comic":""}" data-visual="${index}" style="--bg:${escapeAttr(asset.css_background)}">${source ? `<img src="${escapeAttr(source)}" alt="第 ${index + 1} 张视觉底图">` : ""}${copy}${asset.show_attribution ? `<small>《${escapeHtml(metadata.title)}》 · ${escapeHtml(metadata.author)} · AI 辅助 · 知乎阅读原作</small>` : ""}</div><div class="asset-actions"><button class="asset-action asset-download" data-download-asset="${index}" type="button"><span><b>准备${downloadLabel}</b><small>生成高清 PNG 文件</small></span><i aria-hidden="true">↓</i></button><a class="asset-action asset-download-link" data-asset-link="${index}" href="#" download hidden><span><b>下载${downloadLabel}</b><small>PNG · 1080 × 1440</small></span><i aria-hidden="true">↓</i></a></div></article>`;
+    return `<article class="visual-result"><div class="visual-canvas${isComic?" is-comic":""}${asset.prepared_poster?" is-prepared":""}" data-visual="${index}" style="--bg:${escapeAttr(asset.css_background)}">${source ? `<img src="${escapeAttr(source)}" alt="第 ${index + 1} 张视觉底图">` : ""}${copy}${asset.show_attribution && !asset.prepared_poster ? `<small>《${escapeHtml(metadata.title)}》 · ${escapeHtml(metadata.author)} · AI 辅助 · 知乎阅读原作</small>` : ""}</div><div class="asset-actions"><button class="asset-action asset-download" data-download-asset="${index}" type="button"><span><b>准备${downloadLabel}</b><small>生成高清 PNG 文件</small></span><i aria-hidden="true">↓</i></button><a class="asset-action asset-download-link" data-asset-link="${index}" href="#" download hidden><span><b>下载${downloadLabel}</b><small>PNG · 1080 × 1440</small></span><i aria-hidden="true">↓</i></a></div></article>`;
   }).join("");
   $$('[data-download-asset]').forEach(button => button.onclick = async () => { const index=Number(button.dataset.downloadAsset); setBusy(button,true,"正在生成 PNG…"); try { const url=URL.createObjectURL(await canvasBlob(pages[index])); assetObjectUrls.push(url); const link=$(`[data-asset-link="${index}"]`);link.href=url;link.download=resultType === "comic" ? `${safeName(metadata.title)}-漫画-${String(index+1).padStart(2,"0")}.png` : `${safeName(metadata.title)}-宣传图.png`;link.hidden=false;button.hidden=true;toast("PNG 已准备，请点击下载链接保存"); } catch(error) { toast(`PNG 准备失败：${error.message}`); } finally { setBusy(button,false); } });
   $("#publishCopy").textContent = resultHook.final_text;
@@ -616,8 +634,8 @@ async function canvasBlob(asset) {
   }
   if (!drewModelImage) { const colors = asset.colors || ["#162331", "#6a3b48"], gradient = ctx.createLinearGradient(0, 0, 1080, 1440); gradient.addColorStop(0, colors[0]); gradient.addColorStop(1, colors[1]); ctx.fillStyle = gradient; ctx.fillRect(0, 0, 1080, 1440); }
   if(asset.layout==="vertical_storyboard"&&asset.panels?.length) drawComicCopies(ctx,asset);
-  else {ctx.fillStyle="rgba(0,0,0,.25)";ctx.fillRect(0,0,1080,1440);ctx.fillStyle="#fff";ctx.textAlign="center";ctx.font='600 48px "Microsoft YaHei"';const lines=String(asset.text).split("\n").filter(Boolean),start=610-lines.length*42;lines.forEach((line,i)=>ctx.fillText(line,540,start+i*92,820));}
-  if(asset.show_attribution){const metadata=state.task?.bundle?.project_metadata||{title:state.project.title,author:state.project.author};ctx.fillStyle="rgba(0,0,0,.68)";ctx.fillRect(0,1388,1080,52);ctx.textAlign="center";ctx.textBaseline="middle";ctx.font='24px "Microsoft YaHei"';ctx.fillStyle="#fff";ctx.fillText(`《${metadata.title}》 · ${metadata.author} · AI 辅助 · 知乎阅读原作`,540,1414,980);}
+  else if(!asset.prepared_poster){ctx.fillStyle="rgba(0,0,0,.25)";ctx.fillRect(0,0,1080,1440);ctx.fillStyle="#fff";ctx.textAlign="center";ctx.font='600 48px "Microsoft YaHei"';const lines=String(asset.text).split("\n").filter(Boolean),start=610-lines.length*42;lines.forEach((line,i)=>ctx.fillText(line,540,start+i*92,820));}
+  if(asset.show_attribution&&!asset.prepared_poster){const metadata=state.task?.bundle?.project_metadata||{title:state.project.title,author:state.project.author};ctx.fillStyle="rgba(0,0,0,.68)";ctx.fillRect(0,1388,1080,52);ctx.textAlign="center";ctx.textBaseline="middle";ctx.font='24px "Microsoft YaHei"';ctx.fillStyle="#fff";ctx.fillText(`《${metadata.title}》 · ${metadata.author} · AI 辅助 · 知乎阅读原作`,540,1414,980);}
   return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
 }
 
@@ -729,7 +747,8 @@ function bindEvents() {
   $("#confirmHookBtn").onclick = confirmHook;
   $$('[data-material]').forEach(button => button.onclick = () => chooseMaterial(button.dataset.material));
   $("#startComicBtn").onclick = () => startGeneration("comic");
-  $("#startCardBtn").onclick = () => startGeneration("card");
+  $("#startCardBtn").onclick = () => state.posterDesign?.backgroundId === state.backgroundId && state.posterDesign?.previewDataUrl ? startGeneration("card") : openPosterEditor();
+  $("#editPosterBtn").onclick = openPosterEditor;
   $$('[data-bg-filter]').forEach(button => button.onclick = () => { state.backgroundFilter=button.dataset.bgFilter; saveState(); renderBackgrounds(); });
   $("#retryTaskBtn").onclick = retryTask;
   $("#viewResultBtn").onclick = () => { renderResult(); showPage("result"); };

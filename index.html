@@ -7,6 +7,7 @@
   <title>引力场 · 知乎故事站外宣发助手</title>
   <link rel="stylesheet" href="./styles.css?v=40" />
   <link rel="stylesheet" href="./poster-entry.css?v=1" />
+  <link rel="stylesheet" href="./poster-flow.css?v=1" />
 </head>
 <body>
   <header class="topbar">
@@ -88,8 +89,9 @@
     <section class="page" data-page="background" hidden>
       <div class="page-head"><div><small>STEP 05 · 宣传图</small><h1>选择一张预设底图</h1><p>AI 相关项优先排列；仍可浏览全部 17 种题材与 8 种时空底图。</p></div><button class="button ghost" data-action="go-action" type="button">返回制作入口</button></div>
       <div class="background-toolbar" id="backgroundToolbar"><button class="is-active" data-bg-filter="all" type="button">全部 25</button><button data-bg-filter="recommended" type="button">AI 相关</button><button data-bg-filter="genre" type="button">题材 17</button><button data-bg-filter="era" type="button">时空 8</button></div>
+      <div class="poster-draft-preview card" id="posterDraftPreview" hidden><img id="posterDraftImage" alt="已保存的宣传图定稿"><div><small>已保存排版</small><b id="posterDraftStyle"></b><p>生成结果、视频和发布包将使用这张定稿。</p><button class="button ghost" id="editPosterBtn" type="button">重新编辑</button></div></div>
       <div class="background-grid" id="backgroundGrid"></div>
-      <div class="page-actions"><span id="backgroundHint">请选择一张底图</span><button class="button primary" id="startCardBtn" type="button" disabled>使用这张底图生成</button></div>
+      <div class="page-actions"><span id="backgroundHint">请选择一张底图</span><button class="button primary" id="startCardBtn" type="button" disabled>下一步：编辑宣传图</button></div>
     </section>
 
     <section class="page" data-page="progress" hidden>
@@ -111,7 +113,7 @@
           <div class="audio-box"><small>BGM · 约 20 秒纯音乐 · AI Prompt → Stable Audio</small><strong id="musicPreset"></strong><button id="bgmPlayBtn" class="button ghost" type="button" hidden>试听 BGM</button><p id="audioState"></p><details id="musicPromptDetails"><summary>查看实际音乐 Prompt</summary><pre id="musicPrompt"></pre><small>避免项（Negative Prompt）</small><p class="muted-note">告诉音乐模型不要生成人声、噪声和不合题材的风格，不是歌词。</p><pre id="musicNegativePrompt"></pre></details></div>
           <div class="video-box"><small>视频预览 · 图片 + BGM</small><video id="videoPreview" controls playsinline hidden></video><button class="button ghost full" id="buildVideoBtn" type="button">生成视频预览</button><a class="button primary full" id="videoDownloadLink" href="#" download hidden>下载视频 WebM</a><p id="videoState">生成后可在此预览并下载。</p></div>
           <div class="export-warning" id="exportWarning"></div>
-          <a class="button poster-editor-entry full" id="posterEditorLink" href="./poster-editor.html" target="_blank" rel="noopener" hidden><span>编辑宣传图表现形式</span><small>浮窗短句、对话、时间轴、字幕等 6 种样式</small></a>
+          <a class="button poster-editor-entry full" id="posterEditorLink" href="./poster-editor.html" target="_blank" rel="noopener" hidden><span>重新编辑宣传图</span><small>浮窗短句、便签、时间轴、字幕等 6 种样式</small></a>
           <button class="button primary full" id="exportPackageBtn" type="button">准备当前发布包 ZIP</button>
           <a class="button primary full" id="packageDownloadLink" href="#" download hidden>下载已准备好的 ZIP</a>
           <button class="button ghost full" id="otherMaterialBtn" type="button">返回制作入口，继续制作</button>
@@ -121,6 +123,6 @@
     </section>
   </main>
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=41"></script>
+  <script type="module" src="./app.js?v=42"></script>
 </body>
 </html>

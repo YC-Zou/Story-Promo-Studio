@@ -106,6 +106,7 @@ function clamp(value, min, max) { return Math.max(min, Math.min(max, Number(valu
 function round(value) { return Math.round(value * 10) / 10; }
 function renderLines(lines) { return lines.map(line => ["dialogue"].includes(line.type) ? `「${line.text}」` : ["message", "system"].includes(line.type) ? `【${line.text}】` : line.text).join("\n"); }
 function renderSelectedLine(line) { return line.type === "dialogue" ? `「${line.text}」` : ["message","system"].includes(line.type) ? `【${line.text}】` : line.text; }
+function stripPosterPunctuation(text) { return String(text || "").replace(/[，。！？；：、,.!?;:"“”‘’（）()【】《》〈〉—…·~～\-]/gu, "").trim(); }
 function splitPreservingText(text) {
   const value = String(text || "");
   const parts = value.match(/[^。！？!?；;，,：:\n]+[。！？!?；;，,：:]?|\n+/g) || [value];
@@ -408,7 +409,7 @@ async function buildMusicProfile(project, type) {
 }
 function planAssets(project, type, backgroundId, comicStyleId) {
   const selectedLines = project.selectedHook.selected_lines, presets = backgroundPresets(project.analysis.story_profile.primary_category, project.input), selectedBg = presets.find(item => item.id === backgroundId) || presets[0];
-  if (type === "card") return [{ id: "card", file_name: "card.png", text: groupSelectedLines(project.selectedHook.selected_lines).join("\n"), colors: selectedBg.colors, css_background: selectedBg.css_background, background_id: selectedBg.id, background_asset_url:selectedBg.asset_url, width: 1080, height: 1440, status:"queued", panel_count:1, show_attribution:true, adapter_mode:"fixed_background_canvas" }];
+  if (type === "card") return [{ id: "card", file_name: "card.png", text: groupSelectedLines(project.selectedHook.selected_lines).map(stripPosterPunctuation).filter(Boolean).join("\n"), colors: selectedBg.colors, css_background: selectedBg.css_background, background_id: selectedBg.id, background_asset_url:selectedBg.asset_url, width: 1080, height: 1440, status:"queued", panel_count:1, show_attribution:true, adapter_mode:"fixed_background_canvas" }];
   let comicLines=selectedLines.map(line=>({...line}));
   if(comicLines.length===1){const parts=splitPreservingText(comicLines[0].text);if(parts.length>1)comicLines=parts.map(text=>({...comicLines[0],text}));}
   const pageCount = Math.min(8, Math.max(2, Math.ceil(comicLines.length / 4))), style = COMIC_STYLES[comicStyleId] || COMIC_STYLES["polished-campus"];
@@ -440,6 +441,16 @@ async function createTask(project, selection) {
   if (selection.selected_type === "card" && !backgroundPresets(project.analysis.story_profile.primary_category, project.input).some(item => item.id === selection.background_id)) throw error("所选底图不存在", 409);
   if (selection.selected_type === "comic" && !COMIC_STYLES[selection.comic_style]) throw error("请选择有效漫画画风", 409);
   const id = randomUUID(), now = Date.now(), bundle = { selected_type: selection.selected_type, comic_style:selection.selected_type === "comic" ? { id:selection.comic_style, ...COMIC_STYLES[selection.comic_style] } : null, project_metadata:{ title:project.input.title, author:project.input.author, source_url:project.input.source_url }, selected_hook_profile:JSON.parse(JSON.stringify(project.selectedHook)), visual_context:null, image_assets: planAssets(project, selection.selected_type, selection.background_id, selection.comic_style), music_profile:null, audio_url: null };
+  if (selection.selected_type === "card" && selection.poster_image_data_url) {
+    const match = String(selection.poster_image_data_url).match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) throw error("宣传图定稿格式无效", 400);
+    const buffer = Buffer.from(match[2], "base64");
+    if (!buffer.length || buffer.length > 8 * 1024 * 1024) throw error("宣传图定稿文件无效或超过 8 MB", 413);
+    const extension = match[1] === "png" ? "png" : "jpg";
+    const file = await saveMedia(id, `poster-final.${extension}`, buffer);
+    Object.assign(bundle.image_assets[0], { _image_file:file, image_url:`/api/tasks/${id}/images/0`, prepared_poster:true, adapter_mode:"saved_poster_design" });
+    bundle.poster_design = selection.poster_design && typeof selection.poster_design === "object" ? selection.poster_design : null;
+  }
   const task = { id, project_id: project.analysis.story_profile.project_id, status: "queued", progress: 3, message: "任务已创建，正在准备视觉与音乐提示词", created_at: now, updated_at: now, attempt: 1, simulate_failure: selection.simulate_failure || "", subtasks: [{ id: "material", label: selection.selected_type === "comic" ? "漫画图组" : "单图合成", status: "queued", retryable: true, message: "正在准备视觉上下文" }, { id: "music", label: "BGM", status: "queued", retryable: true, message: "正在准备音乐提示词" }], bundle };
   tasks.set(id, task); project.bundles.push(id); await persistState(); startTask(task); return publicTask(task);
 }

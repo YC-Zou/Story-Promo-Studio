@@ -57,7 +57,8 @@ assert.equal(done.status, "partially_failed");
 assert.deepEqual(done.bundle.project_metadata, { title:sample.title, author:"测试作者", source_url:"https://www.zhihu.com/question/1/answer/2" });
 assert.equal(done.bundle.image_assets.length, 1);
 assert.ok(done.bundle.image_assets[0].text.split("\n").length >= 2 && done.bundle.image_assets[0].text.split("\n").length <= 6);
-assert.equal(done.bundle.image_assets[0].text.replace(/\n/g,""), candidate.rendered_text.replace(/\n/g,""));
+assert.ok(!/[，。！？；：、,.!?;:"“”‘’（）()【】《》〈〉—…·~～-]/u.test(done.bundle.image_assets[0].text));
+assert.equal(done.bundle.image_assets[0].text.replace(/\s|[，。！？；：、,.!?;:"“”‘’（）()【】《》〈〉—…·~～-]/gu,""), candidate.rendered_text.replace(/\s|[，。！？；：、,.!?;:"“”‘’（）()【】《》〈〉—…·~～-]/gu,""));
 const exportInfo = await request(`/api/projects/${id}/export?task_id=${task.id}`);
 assert.equal(exportInfo.export_mode, "browser_zip");
 assert.equal(exportInfo.task_id, task.id);
@@ -88,4 +89,4 @@ await request("/api/projects/analyze", { method:"POST", headers:{"Content-Type":
 await post("/api/projects/analyze", { title:"长正文", author:"测试", authorized:true, body:"字".repeat(50001), labels:[] }, 413);
 await post("/api/projects/analyze", { title:"空正文", author:"测试", authorized:true, body:"", labels:[] }, 400);
 await post("/api/projects/analyze", { title:sample.title, author:"测试", authorized:false, body:sample.body, labels:sample.labels }, 400);
-console.log(JSON.stringify({ ok:true, checks:32, sample_count:20, background_presets:presetCount, card_status:done.status, comic_status:comicDone.status }, null, 2));
+console.log(JSON.stringify({ ok:true, checks:33, sample_count:20, background_presets:presetCount, card_status:done.status, comic_status:comicDone.status }, null, 2));

@@ -1,0 +1,16 @@
+.poster-draft-preview {
+  max-width: 760px; margin: 0 auto 18px; padding: 14px; display: grid;
+  grid-template-columns: 132px 1fr; gap: 18px; align-items: center;
+  border-color: #a9c4eb; background: #f7faff;
+}
+.poster-draft-preview[hidden] { display: none; }
+.poster-draft-preview img { width: 132px; aspect-ratio: 3/4; display: block; object-fit: cover; border-radius: 7px; box-shadow: 0 8px 24px rgba(25,40,60,.16); }
+.poster-draft-preview div { display: grid; justify-items: start; gap: 6px; }
+.poster-draft-preview small { color: #1768e9; font-size: 9px; font-weight: 800; }
+.poster-draft-preview b { font-size: 16px; }
+.poster-draft-preview p { margin: 0 0 3px; color: #687487; font-size: 10px; }
+.visual-results.is-card { grid-template-columns: minmax(280px, 520px); justify-content: center; }
+.visual-results.is-card .visual-result { width: 100%; }
+.visual-canvas.is-prepared { padding: 0; }
+.visual-canvas.is-prepared::before, .visual-canvas.is-prepared::after { display: none; }
+.visual-canvas.is-prepared > img { z-index: 0; }
