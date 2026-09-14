@@ -37,7 +37,7 @@ An AI-powered studio that turns Zhihu stories into compelling hooks, comic seque
 - 使用内置 Stable Audio 3 TFLite 服务在本机 CPU 上生成 BGM。
 - 并行处理图片与音乐，失败子任务可重试。
 - 单独下载每页漫画或宣传图，并在浏览器中把图片与 BGM 合成为可预览、下载的 WebM 视频。
-- 从单图结果进入独立的故事海报设计器，使用模板、文字、基础元素、底图与图层进行二次创作；设计自动保存，可导出 1080 × 1440 PNG。
+- 从单图结果进入轻量宣传图样式编辑器，在浮窗短句、左右对话、线索时间轴、电影字幕、章节纸页和强冲击标题之间切换；支持逐行改文案、调画面气质、换底图、拖动微调、自动保存和 1080 × 1440 PNG 导出。
 - 导出包含视觉物料、发布文案及可选 BGM 的 ZIP 发布包。
 - 支持刷新和服务重启后的任务状态恢复。
 
@@ -51,7 +51,7 @@ tests/                               静态与 API 回归测试
 third_party/stable-audio-3-tflite/   Stable Audio 3 CPU/TFLite 源码
 third_party/fabric/                   海报画布编辑器（Fabric.js）
 app.js                               浏览器端应用
-poster-editor.html/.css/.js          独立故事海报设计器
+poster-editor.html/.css/.js          轻量宣传图样式编辑器
 server.mjs                           Node.js 服务端
 index.html / styles.css              页面与样式
 ```

@@ -3,74 +3,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>故事海报设计器 · 引力场</title>
-  <link rel="stylesheet" href="./poster-editor.css?v=1" />
-  <link rel="stylesheet" href="./poster-editor-responsive.css?v=1" />
+  <title>宣传图样式编辑 · 引力场</title>
+  <link rel="stylesheet" href="./poster-editor.css?v=2" />
 </head>
 <body>
-  <header class="editor-topbar">
-    <a class="editor-brand" href="./"><span>引</span><div><b>故事海报设计器</b><small>Story Poster Designer</small></div></a>
-    <div class="history-actions"><button id="undoBtn" type="button" title="撤销 Ctrl+Z">↶</button><button id="redoBtn" type="button" title="重做 Ctrl+Y">↷</button></div>
-    <div class="save-state" id="saveState">正在载入设计…</div>
-    <div class="top-actions"><button id="zoomOutBtn" type="button">−</button><span id="zoomValue">100%</span><button id="zoomInBtn" type="button">＋</button><button class="export-button" id="exportBtn" type="button">导出高清 PNG</button></div>
+  <header class="topbar">
+    <a class="brand" href="./"><span>引</span><div><b>宣传图样式编辑</b><small>把故事钩子排成适合传播的画面</small></div></a>
+    <div class="history"><button id="undoBtn" type="button" title="撤销 Ctrl+Z">↶</button><button id="redoBtn" type="button" title="重做 Ctrl+Y">↷</button></div>
+    <span class="save-state" id="saveState">正在载入…</span>
+    <button class="export" id="exportBtn" type="button">导出高清 PNG</button>
   </header>
 
-  <main class="editor-layout">
-    <aside class="asset-panel">
-      <nav class="asset-tabs" aria-label="设计素材">
-        <button class="is-active" data-tab="templates" type="button">模板</button>
-        <button data-tab="text" type="button">文字</button>
-        <button data-tab="elements" type="button">元素</button>
-        <button data-tab="backgrounds" type="button">底图</button>
-      </nav>
-      <section class="asset-section" data-panel="templates">
-        <div class="panel-title"><div><b>故事模板</b><small>点击即可重新排版</small></div></div>
-        <div class="template-list" id="templateList"></div>
+  <main class="editor-shell">
+    <aside class="controls">
+      <section>
+        <div class="section-head"><div><b>1. 选择表现形式</b><small>不是换皮，是不同的阅读节奏</small></div></div>
+        <div class="style-grid" id="styleList"></div>
       </section>
-      <section class="asset-section" data-panel="text" hidden>
-        <div class="panel-title"><div><b>添加文字</b><small>双击画布文字可编辑</small></div></div>
-        <button class="add-text title" data-add-text="title" type="button">添加标题</button>
-        <button class="add-text body" data-add-text="body" type="button">添加正文</button>
-        <button class="add-text caption" data-add-text="caption" type="button">添加小字</button>
+
+      <section>
+        <div class="section-head"><div><b>2. 调整文案分句</b><small>每行是一块独立画面文字，建议 4–6 行</small></div></div>
+        <textarea id="linesInput" rows="7" maxlength="320"></textarea>
+        <button class="apply-copy" id="applyCopyBtn" type="button">应用分句</button>
       </section>
-      <section class="asset-section" data-panel="elements" hidden>
-        <div class="panel-title"><div><b>基础元素</b><small>添加后可缩放和旋转</small></div></div>
-        <div class="element-grid"><button data-shape="rect" type="button"><i class="shape-rect"></i>色块</button><button data-shape="circle" type="button"><i class="shape-circle"></i>圆形</button><button data-shape="line" type="button"><i class="shape-line"></i>分割线</button><button data-shape="quote" type="button"><i class="shape-quote">“</i>引号</button></div>
+
+      <section>
+        <div class="section-head"><div><b>3. 调整画面气质</b><small>先保证文字清楚，再追求氛围</small></div></div>
+        <div class="field-row">
+          <label>画面滤镜<select id="toneSelect"><option value="cinema">电影暗调</option><option value="cool">冷蓝夜色</option><option value="warm">暖色回忆</option><option value="mono">黑白纪实</option><option value="clear">通透明亮</option></select></label>
+          <label>强调色<input id="accentColor" type="color" value="#ffffff" /></label>
+        </div>
       </section>
-      <section class="asset-section" data-panel="backgrounds" hidden>
-        <div class="panel-title"><div><b>题材与时空底图</b><small>AI 相关项优先</small></div></div>
-        <div class="background-list" id="editorBackgroundList"></div>
+
+      <section>
+        <div class="section-head"><div><b>4. 换一张底图</b><small>题材与时空相关项排在前面</small></div></div>
+        <div class="background-list" id="backgroundList"></div>
       </section>
     </aside>
 
-    <section class="stage-panel">
-      <div class="stage-meta"><span id="posterName">宣传海报</span><small>1080 × 1440 px</small></div>
-      <div class="stage-scroll">
+    <section class="preview-area">
+      <div class="preview-head"><div><b id="posterName">宣传图预览</b><small id="styleDescription">适合短视频首屏与图文首图</small></div><span>1080 × 1440</span></div>
+      <div class="stage">
         <div class="canvas-shell" id="canvasShell"><canvas id="posterCanvas" width="540" height="720"></canvas></div>
       </div>
-      <p class="stage-tip">拖动元素调整位置 · 拖拽控制点缩放旋转 · 双击文字编辑</p>
+      <div class="stage-foot"><span>可直接拖动文字块微调位置</span><button id="resetLayoutBtn" type="button">恢复推荐排版</button></div>
     </section>
-
-    <aside class="property-panel">
-      <div class="property-head"><div><b>属性与图层</b><small id="selectionName">未选择元素</small></div><button id="deleteBtn" type="button" disabled>删除</button></div>
-      <section class="property-section" id="textProperties" hidden>
-        <label>字体<select id="fontFamily"><option value="Microsoft YaHei">微软雅黑</option><option value="SimSun">宋体</option><option value="KaiTi">楷体</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option></select></label>
-        <div class="property-row"><label>字号<input id="fontSize" type="number" min="8" max="160" value="28" /></label><label>行距<input id="lineHeight" type="number" min="0.7" max="3" step="0.1" value="1.4" /></label></div>
-        <div class="property-row"><label>文字颜色<input id="fillColor" type="color" value="#ffffff" /></label><label>透明度<input id="opacityInput" type="range" min="10" max="100" value="100" /></label></div>
-        <div class="align-actions"><button data-align="left" type="button">左对齐</button><button data-align="center" type="button">居中</button><button data-align="right" type="button">右对齐</button></div>
-      </section>
-      <section class="property-section" id="shapeProperties" hidden>
-        <div class="property-row"><label>填充颜色<input id="shapeColor" type="color" value="#1768e9" /></label><label>透明度<input id="shapeOpacity" type="range" min="10" max="100" value="100" /></label></div>
-      </section>
-      <section class="property-section compact-actions">
-        <button id="bringForwardBtn" type="button">上移一层</button><button id="sendBackwardBtn" type="button">下移一层</button><button id="duplicateBtn" type="button">复制</button><button id="lockBtn" type="button">锁定</button>
-      </section>
-      <section class="layers-section"><div class="panel-title"><div><b>图层</b><small>从上到下排列</small></div></div><div class="layer-list" id="layerList"></div></section>
-    </aside>
   </main>
 
-  <div class="editor-toast" id="editorToast" role="status" aria-live="polite"></div>
+  <div class="toast" id="editorToast" role="status" aria-live="polite"></div>
   <script src="./third_party/fabric/fabric.min.js"></script>
-  <script src="./poster-editor.js?v=1"></script>
+  <script src="./poster-editor.js?v=2"></script>
 </body>
 </html>

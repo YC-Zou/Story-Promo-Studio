@@ -1,43 +1,202 @@
 (() => {
   "use strict";
-  const STORAGE_KEY="zhihu-story-workbench-v11", W=540, H=720;
-  const $=selector=>document.querySelector(selector), $$=selector=>[...document.querySelectorAll(selector)];
-  const params=new URLSearchParams(location.search), taskId=params.get("task_id")||"", assetIndex=Number(params.get("asset")||0);
-  const templates=[
-    {id:"cinema",name:"电影叙事",a:"#0f1a24",b:"#31475b",c:"#fff",align:"left",left:52,top:370,width:420,fontSize:29,overlay:.42},
-    {id:"editorial",name:"杂志封面",a:"#f3eee5",b:"#c7a77d",c:"#15191e",align:"left",left:46,top:90,width:430,fontSize:34,overlay:.12},
-    {id:"suspense",name:"悬念暗场",a:"#110f18",b:"#5f2632",c:"#fff",align:"center",left:55,top:265,width:410,fontSize:31,overlay:.58},
-    {id:"minimal",name:"留白文艺",a:"#e9edf0",b:"#aebfc7",c:"#17202b",align:"center",left:62,top:160,width:396,fontSize:27,overlay:.2},
-    {id:"impact",name:"强标题",a:"#18202b",b:"#1768e9",c:"#fff",align:"left",left:38,top:110,width:450,fontSize:40,overlay:.36},
-    {id:"quote",name:"对白卡片",a:"#27333d",b:"#9a6d61",c:"#fff",align:"center",left:62,top:420,width:396,fontSize:28,overlay:.45},
-  ];
-  let canvas, task, asset, currentTemplate="cinema", zoom=1, history=[], historyIndex=-1, restoring=false, toastTimer;
-  const autosaveKey=`poster-design:${taskId}:${assetIndex}`;
 
-  function toast(message){const el=$("#editorToast");el.textContent=message;el.classList.add("is-visible");clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove("is-visible"),2400);}
-  function getTask(){let state;try{state=JSON.parse(localStorage.getItem(STORAGE_KEY)||"null");}catch{}const rows=[state?.task,...(state?.history||[])].filter(Boolean);return rows.find(item=>item.id===taskId)||state?.task;}
-  function objectName(obj){if(obj.role==="background")return "背景图片";if(obj.role==="overlay")return "氛围遮罩";if(obj.role==="main-copy")return "故事钩子";if(obj.role==="attribution")return "作品署名（锁定）";if(obj.type?.includes("text"))return String(obj.text||"文字").slice(0,12);return obj.type==="rect"?"色块":obj.type==="circle"?"圆形":obj.type==="line"?"分割线":"设计元素";}
-  function enhance(obj){obj.set({cornerColor:"#1768e9",cornerStrokeColor:"#fff",borderColor:"#1768e9",cornerStyle:"circle",transparentCorners:false,padding:4});return obj;}
-  function setLocked(obj,locked){obj.set({locked,selectable:!locked,evented:!locked,lockMovementX:locked,lockMovementY:locked,lockScalingX:locked,lockScalingY:locked,lockRotation:locked});}
-  function snapshot(){if(restoring)return;const json=JSON.stringify(canvas.toJSON(["role","locked","name","templateId"]));if(history[historyIndex]===json)return;history=history.slice(0,historyIndex+1);history.push(json);if(history.length>40)history.shift();historyIndex=history.length-1;localStorage.setItem(autosaveKey,json);$("#saveState").textContent="已自动保存";updateHistoryButtons();renderLayers();}
-  function updateHistoryButtons(){$("#undoBtn").disabled=historyIndex<=0;$("#redoBtn").disabled=historyIndex>=history.length-1;}
-  function restore(index){if(index<0||index>=history.length)return;restoring=true;historyIndex=index;canvas.loadFromJSON(history[index],()=>{canvas.getObjects().forEach(obj=>{enhance(obj);if(obj.locked)setLocked(obj,true);});const copy=mainCopy();currentTemplate=copy?.templateId||(copy?.fontFamily==="Georgia"?"editorial":"cinema");$$('[data-template]').forEach(button=>button.classList.toggle("is-active",button.dataset.template===currentTemplate));canvas.renderAll();restoring=false;updateHistoryButtons();renderLayers();updateProperties();localStorage.setItem(autosaveKey,history[index]);});}
-  function addObject(obj,role=""){enhance(obj);if(role)obj.role=role;canvas.add(obj);canvas.setActiveObject(obj);canvas.requestRenderAll();snapshot();}
-  function loadBackground(url,done){const old=canvas.getObjects().find(item=>item.role==="background");fabric.Image.fromURL(url,img=>{img.role="background";img.name="背景图片";img.set({left:0,top:0,originX:"left",originY:"top",scaleX:W/img.width,scaleY:H/img.height});setLocked(img,true);if(old)canvas.remove(old);canvas.add(img);canvas.sendToBack(img);canvas.requestRenderAll();snapshot();done?.();},{crossOrigin:"anonymous"});}
-  function mainCopy(){return canvas.getObjects().find(item=>item.role==="main-copy");}
-  function overlay(){return canvas.getObjects().find(item=>item.role==="overlay");}
-  function fitCopy(copy,maxBottom=660){let size=Number(copy.fontSize)||28;copy.initDimensions();while(copy.top+copy.height>maxBottom&&size>18){size-=1;copy.set({fontSize:size});copy.initDimensions();}copy.setCoords();}
-  function applyTemplate(id,record=true){const item=templates.find(row=>row.id===id);if(!item)return;currentTemplate=id;$$('[data-template]').forEach(button=>button.classList.toggle("is-active",button.dataset.template===id));const copy=mainCopy(),shade=overlay();if(copy){copy.set({templateId:id,left:item.left,top:item.top,width:item.width,fontSize:item.fontSize,fill:item.c,textAlign:item.align,fontFamily:item.id==="editorial"?'Georgia':'Microsoft YaHei',fontWeight:item.id==="impact"?'800':'600',lineHeight:1.42,shadow:item.c==="#fff"?new fabric.Shadow({color:"rgba(0,0,0,.48)",blur:9,offsetY:2}):null});fitCopy(copy);}if(shade)shade.set({fill:`rgba(5,9,14,${item.overlay})`});canvas.requestRenderAll();if(record)snapshot();updateProperties();}
-  function buildInitial(){restoring=true;canvas.clear();const shade=new fabric.Rect({left:0,top:0,width:W,height:H,fill:"rgba(5,9,14,.42)",selectable:false,evented:false,role:"overlay",name:"氛围遮罩"});setLocked(shade,true);canvas.add(shade);const text=String(asset.text||task.bundle?.selected_hook_profile?.final_text||"").trim();const copy=new fabric.Textbox(text,{left:52,top:370,width:420,fontSize:29,fontFamily:"Microsoft YaHei",fontWeight:"600",lineHeight:1.42,fill:"#fff",textAlign:"left",splitByGrapheme:true,role:"main-copy",name:"故事钩子",shadow:new fabric.Shadow({color:"rgba(0,0,0,.48)",blur:9,offsetY:2})});canvas.add(enhance(copy));const meta=task.bundle?.project_metadata||{};const attr=new fabric.Textbox(`《${meta.title||"作品"}》 · ${meta.author||"作者"} · AI 辅助 · 知乎阅读原作`,{left:35,top:682,width:470,fontSize:10,fontFamily:"Microsoft YaHei",fill:"rgba(255,255,255,.9)",textAlign:"center",role:"attribution",name:"作品署名（锁定）"});setLocked(attr,true);canvas.add(attr);const url=asset.image_url||asset.background_asset_url;restoring=false;if(url)loadBackground(url,()=>snapshot());else snapshot();canvas.setActiveObject(copy);applyTemplate("cinema",false);}
-  function renderTemplates(){$("#templateList").innerHTML=templates.map(item=>`<button class="template-card${item.id===currentTemplate?" is-active":""}" data-template="${item.id}" type="button"><div class="template-preview" style="--a:${item.a};--b:${item.b};--c:${item.c};--t:${item.align};--h:${item.align==='center'?'center':'flex-start'}"><span>故事发生以后<br>一切才刚刚开始</span></div><span>${item.name}</span></button>`).join("");$$('[data-template]').forEach(button=>button.onclick=()=>applyTemplate(button.dataset.template));}
-  async function renderBackgrounds(){try{const category=task.bundle?.visual_context?.primary_category||"realistic_emotion";const result=await fetch(`/api/backgrounds?category=${encodeURIComponent(category)}&project_id=${encodeURIComponent(task.project_id)}`).then(r=>r.json());$("#editorBackgroundList").innerHTML=(result.backgrounds||[]).map(item=>`<button class="background-choice" data-editor-background="${item.asset_url}" type="button"><img src="${item.thumbnail_url}" alt="${item.name}"><span>${item.recommended?"★ ":""}${item.name}</span></button>`).join("");$$('[data-editor-background]').forEach(button=>button.onclick=()=>loadBackground(button.dataset.editorBackground,()=>toast("底图已替换")));}catch{$("#editorBackgroundList").textContent="底图库载入失败";}}
-  function renderLayers(){if(!canvas)return;const rows=[...canvas.getObjects()].reverse();$("#layerList").innerHTML=rows.map((obj,index)=>`<button class="layer-row${canvas.getActiveObject()===obj?" is-active":""}" data-layer="${canvas.getObjects().indexOf(obj)}" type="button"><i>${obj.locked?"⌑":obj.type?.includes("text")?"T":"◆"}</i><span>${objectName(obj)}</span></button>`).join("");$$('[data-layer]').forEach(button=>button.onclick=()=>{const obj=canvas.item(Number(button.dataset.layer));if(obj?.selectable){canvas.setActiveObject(obj);canvas.requestRenderAll();updateProperties();renderLayers();}});}
-  function updateProperties(){const obj=canvas?.getActiveObject(),isText=obj&&obj.type?.includes("text"),isShape=obj&&["rect","circle","line"].includes(obj.type);$("#selectionName").textContent=obj?objectName(obj):"未选择元素";$("#deleteBtn").disabled=!obj||obj.locked;$("#textProperties").hidden=!isText;$("#shapeProperties").hidden=!isShape;$("#duplicateBtn").disabled=!obj||obj.locked;$("#lockBtn").disabled=!obj||obj.role==="background"||obj.role==="attribution";$("#bringForwardBtn").disabled=!obj||obj.locked;$("#sendBackwardBtn").disabled=!obj||obj.locked;if(isText){$("#fontFamily").value=obj.fontFamily||"Microsoft YaHei";$("#fontSize").value=Math.round(obj.fontSize||28);$("#lineHeight").value=obj.lineHeight||1.4;$("#fillColor").value=normalizeColor(obj.fill,"#ffffff");$("#opacityInput").value=Math.round((obj.opacity??1)*100);}if(isShape){$("#shapeColor").value=normalizeColor(obj.fill||obj.stroke,"#1768e9");$("#shapeOpacity").value=Math.round((obj.opacity??1)*100);}renderLayers();}
-  function normalizeColor(value,fallback){return /^#[0-9a-f]{6}$/i.test(String(value))?value:fallback;}
-  function mutateActive(values){const obj=canvas.getActiveObject();if(!obj)return;obj.set(values);canvas.requestRenderAll();updateProperties();snapshot();}
-  function bind(){$$('[data-tab]').forEach(button=>button.onclick=()=>{$$('[data-tab]').forEach(item=>item.classList.toggle("is-active",item===button));$$('[data-panel]').forEach(panel=>panel.hidden=panel.dataset.panel!==button.dataset.tab);});$$('[data-add-text]').forEach(button=>button.onclick=()=>{const kind=button.dataset.addText,config=kind==="title"?{text:"输入海报标题",fontSize:42,fontWeight:"800"}:kind==="caption"?{text:"输入补充文字",fontSize:16,fontWeight:"400"}:{text:"双击编辑文字",fontSize:26,fontWeight:"500"};addObject(new fabric.Textbox(config.text,{left:70,top:120,width:400,fill:"#fff",fontFamily:"Microsoft YaHei",textAlign:"center",...config}));});$$('[data-shape]').forEach(button=>button.onclick=()=>{const kind=button.dataset.shape;if(kind==="rect")addObject(new fabric.Rect({left:160,top:220,width:220,height:110,fill:"#1768e9",rx:12,ry:12,opacity:.9}));if(kind==="circle")addObject(new fabric.Circle({left:210,top:260,radius:65,fill:"#e55f55",opacity:.9}));if(kind==="line")addObject(new fabric.Line([120,340,420,340],{stroke:"#fff",strokeWidth:4}));if(kind==="quote")addObject(new fabric.Text("“",{left:210,top:190,fontFamily:"Georgia",fontSize:150,fill:"rgba(255,255,255,.7)"}));});$("#fontFamily").onchange=e=>mutateActive({fontFamily:e.target.value});$("#fontSize").onchange=e=>mutateActive({fontSize:Number(e.target.value)});$("#lineHeight").onchange=e=>mutateActive({lineHeight:Number(e.target.value)});$("#fillColor").oninput=e=>mutateActive({fill:e.target.value});$("#opacityInput").oninput=e=>mutateActive({opacity:Number(e.target.value)/100});$("#shapeColor").oninput=e=>{const obj=canvas.getActiveObject();mutateActive(obj?.type==="line"?{stroke:e.target.value}:{fill:e.target.value});};$("#shapeOpacity").oninput=e=>mutateActive({opacity:Number(e.target.value)/100});$$('[data-align]').forEach(button=>button.onclick=()=>mutateActive({textAlign:button.dataset.align}));$("#deleteBtn").onclick=()=>{const obj=canvas.getActiveObject();if(obj&&!obj.locked){canvas.remove(obj);canvas.discardActiveObject();snapshot();updateProperties();}};$("#duplicateBtn").onclick=()=>{const obj=canvas.getActiveObject();if(!obj||obj.locked)return;obj.clone(copy=>{copy.set({left:obj.left+16,top:obj.top+16,role:""});addObject(copy);},["name"]);};$("#bringForwardBtn").onclick=()=>{const obj=canvas.getActiveObject();if(obj&&!obj.locked){canvas.bringForward(obj);snapshot();}};$("#sendBackwardBtn").onclick=()=>{const obj=canvas.getActiveObject();if(obj&&!obj.locked){canvas.sendBackwards(obj);const bg=canvas.getObjects().find(item=>item.role==="background");if(bg)canvas.sendToBack(bg);snapshot();}};$("#lockBtn").onclick=()=>{const obj=canvas.getActiveObject();if(!obj)return;setLocked(obj,true);canvas.discardActiveObject();snapshot();updateProperties();};$("#undoBtn").onclick=()=>restore(historyIndex-1);$("#redoBtn").onclick=()=>restore(historyIndex+1);$("#zoomOutBtn").onclick=()=>setZoom(zoom-.1);$("#zoomInBtn").onclick=()=>setZoom(zoom+.1);$("#exportBtn").onclick=exportPng;document.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z"){event.preventDefault();restore(historyIndex+(event.shiftKey?1:-1));}if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="y"){event.preventDefault();restore(historyIndex+1);}if((event.key==="Delete"||event.key==="Backspace")&&!canvas.getActiveObject()?.isEditing)$("#deleteBtn").click();});}
-  function setZoom(value){zoom=Math.max(.6,Math.min(1.3,Math.round(value*10)/10));$("#canvasShell").style.setProperty("--editor-zoom",zoom);$("#zoomValue").textContent=`${Math.round(zoom*100)}%`;}
-  function exportPng(){canvas.discardActiveObject();canvas.requestRenderAll();const url=canvas.toDataURL({format:"png",multiplier:2,enableRetinaScaling:false});const link=Object.assign(document.createElement("a"),{href:url,download:`${String(task.bundle?.project_metadata?.title||"故事").replace(/[\\/:*?"<>|]/g,"-")}-海报.png`});document.body.append(link);link.click();link.remove();toast("已生成 1080 × 1440 高清海报");}
-  function boot(){if(!window.fabric)return alert("画布组件载入失败");task=getTask();asset=task?.bundle?.image_assets?.[assetIndex];if(!task||task.bundle?.selected_type!=="card"||!asset){$("#saveState").textContent="未找到可编辑的宣传图";$("#exportBtn").disabled=true;return;}$("#posterName").textContent=`《${task.bundle?.project_metadata?.title||"故事"}》宣传海报`;canvas=new fabric.Canvas("posterCanvas",{width:W,height:H,preserveObjectStacking:true,selection:true});canvas.on("selection:created",updateProperties);canvas.on("selection:updated",updateProperties);canvas.on("selection:cleared",updateProperties);canvas.on("object:modified",snapshot);canvas.on("text:changed",snapshot);canvas.on("object:added",()=>{if(!restoring)renderLayers();});renderTemplates();renderBackgrounds();bind();const saved=localStorage.getItem(autosaveKey);if(saved){history=[saved];historyIndex=0;restore(0);$("#saveState").textContent="已恢复上次设计";}else buildInitial();setZoom(window.innerWidth<1000?.65:.8);}
+  const STORAGE_KEY = "zhihu-story-workbench-v11";
+  const W = 540, H = 720;
+  const $ = selector => document.querySelector(selector);
+  const $$ = selector => [...document.querySelectorAll(selector)];
+  const params = new URLSearchParams(location.search);
+  const taskId = params.get("task_id") || "";
+  const assetIndex = Number(params.get("asset") || 0);
+  const styles = [
+    { id:"floating", name:"浮窗短句", note:"参考图式错落悬浮", description:"短句逐条出现，适合悬念与情绪递进" },
+    { id:"dialogue", name:"左右对话", note:"像人物正在交锋", description:"左右气泡形成关系感，适合言情与冲突" },
+    { id:"timeline", name:"线索时间轴", note:"事件一步步推进", description:"用节点建立因果顺序，适合反转与悬疑" },
+    { id:"subtitle", name:"电影字幕", note:"画面优先，文字克制", description:"底部字幕保留大面积画面，适合氛围型故事" },
+    { id:"paper", name:"章节纸页", note:"像一页故事摘录", description:"纸张与书页排版，适合年代、古风与现实题材" },
+    { id:"impact", name:"强冲击标题", note:"先抓住最狠的一句", description:"关键词先声夺人，适合复仇、脑洞与爽点" },
+  ];
+  const tones = {
+    cinema:"rgba(4,9,15,.42)", cool:"rgba(7,29,62,.42)", warm:"rgba(91,43,14,.28)",
+    mono:"rgba(18,20,23,.50)", clear:"rgba(7,11,16,.18)"
+  };
+
+  let canvas, task, asset, design, history = [], historyIndex = -1, drawToken = 0, toastTimer;
+  const autosaveKey = `poster-style-design-v2:${taskId}:${assetIndex}`;
+
+  function toast(message) {
+    const el = $("#editorToast"); el.textContent = message; el.classList.add("is-visible");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("is-visible"), 2200);
+  }
+  function getTask() {
+    let appState; try { appState = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch {}
+    return [appState?.task, ...(appState?.history || [])].filter(Boolean).find(item => item.id === taskId) || appState?.task;
+  }
+  function splitCopy(value) {
+    const source = String(value || "").replace(/\r/g, "").trim();
+    let rows = source.split(/\n+/).map(row => row.trim()).filter(Boolean);
+    if (rows.length < 4) rows = source.split(/(?<=[，。！？；])/).map(row => row.trim()).filter(Boolean);
+    const expanded = [];
+    rows.forEach(row => {
+      if (row.length <= 22) return expanded.push(row);
+      const chunks = row.split(/(?<=[，、：；])/).map(item => item.trim()).filter(Boolean);
+      if (chunks.length > 1) expanded.push(...chunks); else for (let i=0; i<row.length; i+=18) expanded.push(row.slice(i,i+18));
+    });
+    const clean = (expanded.length ? expanded : rows).slice(0, 6);
+    return clean.length ? clean : ["输入一句能让人停下来的故事钩子"];
+  }
+  function clone(value) { return JSON.parse(JSON.stringify(value)); }
+  function snapshot(render = true) {
+    const json = JSON.stringify(design);
+    if (history[historyIndex] !== json) {
+      history = history.slice(0, historyIndex + 1); history.push(json);
+      if (history.length > 30) history.shift(); historyIndex = history.length - 1;
+    }
+    localStorage.setItem(autosaveKey, json); $("#saveState").textContent = "已自动保存";
+    updateHistory(); updateControls(); if (render) renderDesign();
+  }
+  function restore(index) {
+    if (index < 0 || index >= history.length) return;
+    historyIndex = index; design = JSON.parse(history[index]); localStorage.setItem(autosaveKey, history[index]);
+    updateHistory(); updateControls(); renderDesign();
+  }
+  function updateHistory() { $("#undoBtn").disabled = historyIndex <= 0; $("#redoBtn").disabled = historyIndex >= history.length - 1; }
+  function updateControls() {
+    $$('[data-style]').forEach(button => button.classList.toggle("is-active", button.dataset.style === design.style));
+    $("#linesInput").value = design.lines.join("\n"); $("#toneSelect").value = design.tone; $("#accentColor").value = design.accent;
+    const current = styles.find(item => item.id === design.style); $("#styleDescription").textContent = current?.description || "";
+    $$('[data-background]').forEach(button => button.classList.toggle("is-active", button.dataset.background === design.backgroundUrl));
+  }
+  function lock(obj) { obj.set({ selectable:false, evented:false }); return obj; }
+  function decorate(obj, key) {
+    obj.designKey = key; obj.set({ cornerColor:"#fff", cornerStrokeColor:"#1768e9", borderColor:"#fff", cornerStyle:"circle", transparentCorners:false, padding:5 });
+    const saved = design.positions?.[design.style]?.[key]; if (saved) obj.set({ left:saved.left, top:saved.top });
+    return obj;
+  }
+  function addText(text, options = {}) {
+    return new fabric.Textbox(text, { fontFamily:"Microsoft YaHei", splitByGrapheme:true, fill:"#fff", fontSize:20, lineHeight:1.25, ...options });
+  }
+  function addHeader() {
+    const title = task.bundle?.project_metadata?.title || "故事";
+    canvas.add(lock(new fabric.Text(`STORY  /  《${title}》`, { left:30, top:27, fontFamily:"Arial", fontSize:10, fontWeight:"700", charSpacing:90, fill:"rgba(255,255,255,.78)" })));
+  }
+  function addAttribution() {
+    const meta = task.bundle?.project_metadata || {};
+    canvas.add(lock(new fabric.Rect({ left:0, top:675, width:W, height:45, fill:"rgba(6,9,13,.76)" })));
+    canvas.add(lock(addText(`《${meta.title || "作品"}》 · ${meta.author || "作者"} · AI 辅助 · 知乎阅读原作`, { left:28, top:691, width:484, fontSize:9, textAlign:"center", fill:"rgba(255,255,255,.82)" })));
+  }
+  function bubble(line, index, left, top, variant = "dark") {
+    const width = Math.min(390, Math.max(155, line.length * 19 + 32));
+    const text = addText(line, { left:39, top:10, width:width-32, fontSize:18, fontWeight:"500", fill:variant === "light" ? "#1d2732" : "#fff" });
+    const height = Math.max(39, text.height + 20);
+    const rect = new fabric.Rect({ left:26, top:0, width, height, rx:height/2, ry:height/2, fill:variant === "light" ? "rgba(255,255,255,.88)" : "rgba(19,23,29,.78)", stroke:"rgba(255,255,255,.42)", strokeWidth:1 });
+    const dot = new fabric.Circle({ left:3, top:height/2-5, radius:5, fill:design.accent, stroke:"rgba(0,0,0,.35)", strokeWidth:2 });
+    return decorate(new fabric.Group([rect, dot, text], { left, top, hasRotatingPoint:false, lockScalingFlip:true }), `line-${index}`);
+  }
+  function layoutFloating() {
+    const xs = [82,132,72,120,88,145], start = design.lines.length > 5 ? 112 : 145, gap = design.lines.length > 5 ? 78 : 88;
+    design.lines.forEach((line,index) => canvas.add(bubble(line,index,xs[index%xs.length],start+index*gap)));
+  }
+  function layoutDialogue() {
+    const start = design.lines.length > 5 ? 105 : 135, gap = design.lines.length > 5 ? 83 : 94;
+    design.lines.forEach((line,index) => canvas.add(bubble(line,index,index%2 ? 150 : 48,start+index*gap,index%2 ? "light" : "dark")));
+  }
+  function layoutTimeline() {
+    const start = 125, gap = Math.min(91, 475 / Math.max(1, design.lines.length-1));
+    canvas.add(lock(new fabric.Rect({ left:76, top:start+7, width:2, height:gap*(design.lines.length-1), fill:"rgba(255,255,255,.55)" })));
+    design.lines.forEach((line,index) => {
+      const dot = new fabric.Circle({ left:0, top:5, radius:11, fill:"rgba(20,25,31,.86)", stroke:design.accent, strokeWidth:2 });
+      const num = new fabric.Text(String(index+1), { left:7, top:8, originX:"center", fontFamily:"Arial", fontSize:9, fill:"#fff" });
+      const text = addText(line, { left:38, top:0, width:365, fontSize:19, fontWeight:"600" });
+      canvas.add(decorate(new fabric.Group([dot,num,text], { left:66, top:start+index*gap }), `line-${index}`));
+    });
+  }
+  function layoutSubtitle() {
+    canvas.add(lock(new fabric.Rect({ left:0, top:365, width:W, height:310, fill:"rgba(5,8,12,.64)" })));
+    const lead = design.lines[0] || "";
+    canvas.add(decorate(addText(lead, { left:45, top:397, width:450, fontSize:31, fontWeight:"800", textAlign:"center" }), "line-0"));
+    const rest = design.lines.slice(1).join("\n");
+    canvas.add(decorate(addText(rest, { left:64, top:485, width:412, fontSize:18, lineHeight:1.55, textAlign:"center", fill:"rgba(255,255,255,.88)" }), "line-rest"));
+    canvas.add(lock(new fabric.Rect({ left:205, top:462, width:130, height:3, rx:2, fill:design.accent })));
+  }
+  function layoutPaper() {
+    canvas.add(lock(new fabric.Rect({ left:55, top:92, width:430, height:542, rx:3, ry:3, fill:"rgba(246,239,224,.93)", shadow:new fabric.Shadow({color:"rgba(0,0,0,.28)",blur:24,offsetY:10}) })));
+    canvas.add(lock(new fabric.Text("STORY EXCERPT", { left:88, top:128, fontFamily:"Arial", fontSize:10, charSpacing:180, fill:"#8a7d6c" })));
+    canvas.add(decorate(addText(design.lines.map((line,index) => `${index ? "— " : ""}${line}`).join("\n\n"), { left:88, top:180, width:364, fontFamily:"KaiTi", fontSize:20, lineHeight:1.5, fill:"#292823" }), "paper-copy"));
+    canvas.add(lock(new fabric.Rect({ left:88, top:158, width:54, height:3, fill:design.accent })));
+  }
+  function layoutImpact() {
+    const first = design.lines[0] || "", second = design.lines[1] || "";
+    canvas.add(decorate(addText(first, { left:38, top:105, width:455, fontSize:43, lineHeight:1.08, fontWeight:"900" }), "line-0"));
+    if (second) canvas.add(decorate(addText(second, { left:38, top:218, width:445, fontSize:35, lineHeight:1.12, fontWeight:"850", fill:design.accent }), "line-1"));
+    const rest = design.lines.slice(2);
+    rest.forEach((line,index) => canvas.add(bubble(line,index+2,index%2 ? 105 : 58,345+index*75)));
+  }
+  function compose() {
+    canvas.add(lock(new fabric.Rect({ left:0, top:0, width:W, height:H, fill:tones[design.tone] || tones.cinema })));
+    addHeader();
+    ({ floating:layoutFloating, dialogue:layoutDialogue, timeline:layoutTimeline, subtitle:layoutSubtitle, paper:layoutPaper, impact:layoutImpact }[design.style] || layoutFloating)();
+    addAttribution(); canvas.requestRenderAll();
+  }
+  function renderDesign() {
+    const token = ++drawToken; canvas.clear(); canvas.backgroundColor = "#303943";
+    const url = design.backgroundUrl;
+    if (!url) return compose();
+    fabric.Image.fromURL(url, image => {
+      if (token !== drawToken) return;
+      const scale = Math.max(W / image.width, H / image.height);
+      image.set({ left:W/2, top:H/2, originX:"center", originY:"center", scaleX:scale, scaleY:scale, selectable:false, evented:false });
+      if (design.tone === "mono") image.filters = [new fabric.Image.filters.Grayscale()];
+      image.applyFilters(); canvas.add(image); compose();
+    }, { crossOrigin:"anonymous" });
+  }
+  function renderStyles() {
+    $("#styleList").innerHTML = styles.map(item => `<button class="style-card" data-style="${item.id}" type="button"><div class="mini mini-${item.id}"><i></i><i></i><i></i></div><strong>${item.name}</strong><small>${item.note}</small></button>`).join("");
+    $$('[data-style]').forEach(button => button.onclick = () => { design.style = button.dataset.style; design.positions = {}; snapshot(); });
+  }
+  async function renderBackgrounds() {
+    try {
+      const category = task.bundle?.visual_context?.primary_category || "realistic_emotion";
+      const result = await fetch(`/api/backgrounds?category=${encodeURIComponent(category)}&project_id=${encodeURIComponent(task.project_id)}`).then(response => response.json());
+      $("#backgroundList").innerHTML = (result.backgrounds || []).map(item => `<button class="background-choice" data-background="${item.asset_url}" type="button"><img src="${item.thumbnail_url}" alt="${item.name}"><span>${item.recommended ? "★ " : ""}${item.name}</span></button>`).join("");
+      $$('[data-background]').forEach(button => button.onclick = () => { design.backgroundUrl = button.dataset.background; snapshot(); toast("底图已替换"); }); updateControls();
+    } catch { $("#backgroundList").textContent = "底图库载入失败"; }
+  }
+  function bind() {
+    $("#applyCopyBtn").onclick = () => { design.lines = splitCopy($("#linesInput").value); design.positions = {}; snapshot(); toast("分句已应用"); };
+    $("#toneSelect").onchange = event => { design.tone = event.target.value; snapshot(); };
+    $("#accentColor").onchange = event => { design.accent = event.target.value; snapshot(); };
+    $("#resetLayoutBtn").onclick = () => { design.positions = {}; snapshot(); toast("已恢复推荐排版"); };
+    $("#undoBtn").onclick = () => restore(historyIndex - 1); $("#redoBtn").onclick = () => restore(historyIndex + 1);
+    $("#exportBtn").onclick = () => {
+      canvas.discardActiveObject(); canvas.requestRenderAll();
+      const url = canvas.toDataURL({ format:"png", multiplier:2, enableRetinaScaling:false });
+      const filename = `${String(task.bundle?.project_metadata?.title || "故事").replace(/[\\/:*?"<>|]/g,"-")}-${styles.find(item=>item.id===design.style)?.name || "宣传图"}.png`;
+      const link = Object.assign(document.createElement("a"), { href:url, download:filename }); document.body.append(link); link.click(); link.remove(); toast("已生成 1080 × 1440 高清宣传图");
+    };
+    document.addEventListener("keydown", event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); restore(historyIndex + (event.shiftKey ? 1 : -1)); }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); restore(historyIndex + 1); }
+    });
+  }
+  function boot() {
+    if (!window.fabric) return alert("宣传图编辑组件载入失败");
+    task = getTask(); asset = task?.bundle?.image_assets?.[assetIndex];
+    if (!task || task.bundle?.selected_type !== "card" || !asset) { $("#saveState").textContent = "未找到可编辑的宣传图"; $("#exportBtn").disabled = true; return; }
+    $("#posterName").textContent = `《${task.bundle?.project_metadata?.title || "故事"}》宣传图`;
+    canvas = new fabric.Canvas("posterCanvas", { width:W, height:H, preserveObjectStacking:true, selection:false });
+    canvas.on("object:modified", event => {
+      const key = event.target?.designKey; if (!key) return;
+      design.positions ||= {}; design.positions[design.style] ||= {}; design.positions[design.style][key] = { left:event.target.left, top:event.target.top }; snapshot(false);
+    });
+    const saved = localStorage.getItem(autosaveKey);
+    try { design = saved ? JSON.parse(saved) : null; } catch { design = null; }
+    design ||= { style:"floating", lines:splitCopy(asset.text || task.bundle?.selected_hook_profile?.final_text), backgroundUrl:asset.image_url || asset.background_asset_url || "", tone:"cinema", accent:"#ffffff", positions:{} };
+    history = [JSON.stringify(design)]; historyIndex = 0;
+    renderStyles(); bind(); updateHistory(); updateControls(); renderBackgrounds(); renderDesign();
+    $("#saveState").textContent = saved ? "已恢复上次设计" : "已自动保存";
+    $("#canvasShell").style.setProperty("--zoom", window.innerWidth < 980 ? ".68" : ".78");
+  }
+
   boot();
 })();
