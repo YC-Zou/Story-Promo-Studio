@@ -406,7 +406,10 @@ async function selectHook(project, body) {
   if (issues.length) return { validation_status: "failed", issues };
   const modelValidation = exactCandidate ? null : await validateCustomHook(project, text);
   if (modelValidation?.validation_status === "failed") return modelValidation;
-  const evidence = project.analysis.content_analysis.evidence_pool, selectedLines = text.split("\n").map(line => ({ type: /^「.*」$/.test(line) ? "dialogue" : /^【.*】$/.test(line) ? "system" : "narration", text: line.replace(/^[「【]|[」】]$/g, ""), source_refs: exactCandidate ? (exactCandidate.lines.find(item => line.includes(item.text))?.source_refs || [evidence[0].ref_id]) : [[...evidence].sort((a,b)=>overlapScore(line,b.quote)-overlapScore(line,a.quote))[0].ref_id] }));
+  const evidence = project.analysis.content_analysis.evidence_pool;
+  const selectedLines = exactCandidate
+    ? exactCandidate.lines.map(line => ({ type:line.type, text:line.text, speaker:line.speaker ? String(line.speaker).trim() : undefined, source_refs:[...(line.source_refs || [evidence[0].ref_id])] }))
+    : text.split("\n").map(line => ({ type: /^「.*」$/.test(line) ? "dialogue" : /^【.*】$/.test(line) ? "system" : "narration", text: line.replace(/^[「【]|[」】]$/g, ""), source_refs:[[...evidence].sort((a,b)=>overlapScore(line,b.quote)-overlapScore(line,a.quote))[0].ref_id] }));
   const hookType = exactCandidate?.hook_type || modelValidation?.hook_type || detectHookType(text), recommendation = recommendationFor(text, hookType);
   const profile = { hook_id: exactCandidate?.candidate_id || "custom", final_text: text, selected_lines: selectedLines, source_refs: [...new Set(selectedLines.flatMap(item => item.source_refs))], hook_type: hookType, primary_emotion: modelValidation?.primary_emotion || (project.analysis.content_analysis.tone_profile === "suspense_dark" ? "恐惧" : project.analysis.content_analysis.tone_profile === "revenge_power" ? "愤怒" : project.analysis.content_analysis.tone_profile === "comic_absurd" ? "荒诞" : "希望"), secondary_emotion: modelValidation?.secondary_emotion || null, intensity: clamp(modelValidation?.intensity || 2,1,3), narrative_signals: { line_count: selectedLines.length }, validation_status: "passed", validation_mode:exactCandidate ? "generated_candidate" : "live_model_full_body", issues: [] };
   project.selectedHook = profile; await persistState(); return { ...profile, recommendation };
@@ -474,7 +477,7 @@ function planAssets(project, type, backgroundId, comicStyleId) {
   let cursor=0;
   return Array.from({ length: pageCount }, (_, index) => {
     const remaining=comicLines.length-cursor, pagesLeft=pageCount-index, take=Math.min(4,Math.max(1,Math.ceil(remaining/pagesLeft))), chunk=comicLines.slice(cursor,cursor+take); cursor+=take;
-    const bg=presets[index%presets.length], panels=chunk.map((line,panelIndex)=>({panel_index:panelIndex+1,type:line.type,text:line.text,rendered_text:renderSelectedLine(line),source_refs:line.source_refs||[]}));
+    const bg=presets[index%presets.length], panels=chunk.map((line,panelIndex)=>({panel_index:panelIndex+1,type:line.type,speaker:line.speaker||null,text:line.text,rendered_text:renderSelectedLine(line),source_refs:line.source_refs||[]}));
     return { id:`page-${index+1}`,file_name:`${String(index+1).padStart(2,"0")}.png`,text:panels.map(panel=>panel.rendered_text).join("\n"),panels,layout:"vertical_storyboard",colors:bg.colors,css_background:bg.css_background,width:1080,height:1440,status:"queued",panel_count:panels.length,show_attribution:true,visual_preset_id:comicStyleId,visual_style_label:style.label,visual_style_prompt:style.prompt,adapter_mode:imageApiKey?"seedream":"unconfigured"};
   });
 }
@@ -486,11 +489,14 @@ async function buildVisualContext(project, type, comicStyleId) {
   const context = { primary_category:project.analysis.story_profile.primary_category, visual_anchors:project.analysis.story_profile.visual_anchors?.length ? project.analysis.story_profile.visual_anchors : fallbackAnchors, render_style:renderStyle, continuity_rule:"同一人物的年龄、脸型、发型、服装颜色和关键物件跨页保持完全一致；不得在摄影、动漫、3D或不同画风之间切换" };
   if (type !== "comic") return context;
   if (isDemoMode) return { ...context, setting:"演示样例场景", palette:"低饱和蓝灰", character_bible:{ characters:[{role:"主角",name_or_label:"故事主角",age:"成年",gender_presentation:"按原文",face:"自然写实",hair:"深色",clothing:"简洁日常服装",immutable_traits:["跨页保持一致"]}], recurring_objects:[], negative_constraints:["不增加原文没有的人物或结局"] } };
-  const prompt = `你是漫画角色连续性设计师。根据正文、已冻结钩子和证据建立一个制作专用视觉圣经，只返回 JSON 对象。不得改变人物关系或剧情；正文未说明的外观可做克制设计，但必须固定后供每页复用。结构：{setting:string,palette:string,characters:[{role:string,name_or_label:string,age:string,gender_presentation:string,face:string,hair:string,clothing:string,immutable_traits:string[]}],recurring_objects:string[],negative_constraints:string[]}。characters 只保留钩子中实际出现或必需的 1—4 人，每项描述具体、简短、可直接用于中文生图提示词；同一角色的所有固定特征不得互相矛盾。\n作品：${project.input.title}\n标签：${(project.input.labels || []).join("、")}\n冻结钩子：${project.selectedHook.final_text}\n证据：${JSON.stringify(evidence)}\n正文前段：${String(project.input.body).slice(0, 6000)}`;
+  const dialogueLines=(project.selectedHook.selected_lines||[]).filter(line=>line.type==="dialogue").map(line=>({text:line.text,speaker:line.speaker||null,source_refs:line.source_refs||[]}));
+  const prompt = `你是漫画角色连续性与对白归属设计师。根据正文、已冻结钩子和证据建立一个制作专用视觉圣经，只返回 JSON 对象。不得改变人物关系或剧情；正文未说明的外观可做克制设计，但必须固定后供每页复用。结构：{setting:string,palette:string,characters:[{role:string,name_or_label:string,age:string,gender_presentation:string,face:string,hair:string,clothing:string,immutable_traits:string[]}],recurring_objects:string[],negative_constraints:string[],speech_assignments:[{text:string,speaker:string,visual_role:string}]}。characters 只保留钩子中实际出现或必需的 1—4 人，每项描述具体、简短、可直接用于中文生图提示词；同一角色的所有固定特征不得互相矛盾。speech_assignments 必须逐条覆盖输入中的 dialogue_lines；speaker 必须依据正文确定真正说话的人，visual_role 必须说明该人物在画面中的身份与固定外观，绝不能把听话人、旁观者或邻近人物误认成说话人。若正文无法可靠确定，说话人写“无法确认”，不得猜测。\n作品：${project.input.title}\n标签：${(project.input.labels || []).join("、")}\n冻结钩子：${project.selectedHook.final_text}\ndialogue_lines：${JSON.stringify(dialogueLines)}\n证据：${JSON.stringify(evidence)}\n正文前段：${String(project.input.body).slice(0, 6000)}`;
   let bible,lastError;
   for(let attempt=0;attempt<2&&!bible;attempt++)try{const value=await callChat(`${prompt}\n第${attempt+1}次请求：只输出一个完整 JSON 对象，不要分析过程或代码围栏。`);if(!Array.isArray(value.characters)||value.characters.length<1||value.characters.length>4)throw error("视觉圣经缺少有效 characters",502);bible=value;}catch(cause){lastError=cause;}
   if(!bible)throw lastError||error("视觉圣经生成失败",502);
-  return { ...context, setting:String(bible.setting || ""), palette:String(bible.palette || ""), character_bible:bible, generated_by:hookModel };
+  const speechAssignments=Array.isArray(bible.speech_assignments)?bible.speech_assignments.map(item=>({text:String(item.text||"").trim(),speaker:String(item.speaker||"").trim(),visual_role:String(item.visual_role||"").trim()})).filter(item=>item.text):[];
+  const characterBible={...bible};delete characterBible.speech_assignments;
+  return { ...context, setting:String(bible.setting || ""), palette:String(bible.palette || ""), character_bible:characterBible, speech_assignments:speechAssignments, generated_by:hookModel };
 }
 async function createTask(project, selection) {
   if (project.selectedHook?.validation_status !== "passed") throw error("尚未确认有效钩子", 409);
@@ -592,8 +598,12 @@ async function runMaterial(task) {
     asset.status = "running";
     let success = false, lastError;
     for (let attempt = 0; attempt < 2 && !success; attempt++) try {
-      const panelBeats=asset.panels.map(panel=>`第${panel.panel_index}格：${panel.text}`).join("；");
-      const prompt = `竖版知乎故事分格漫画页，第 ${index + 1}/${task.bundle.image_assets.length} 页。用户已选择画风“${asset.visual_style_label}”：${asset.visual_style_prompt}。全项目强制统一渲染规范：${task.bundle.visual_context.render_style}。严禁本页或不同页擅自切换绘画媒介。整张图必须清楚分成 ${asset.panel_count} 个从上到下排列的横向漫画格，每格等宽，以醒目的白色横向间隔线分隔；每格只画一个连续镜头，镜头景别有变化，构图参考手机竖屏条漫。角色视觉圣经（所有格、所有页必须逐项严格复现，不得改变人物的性别呈现、年龄、脸型、发型、服装颜色和关键物件）：${JSON.stringify(task.bundle.visual_context.character_bible)}。固定时空与色彩：${task.bundle.visual_context.setting}；${task.bundle.visual_context.palette}。本页镜头顺序：${panelBeats}。每格顶部或侧边留出干净区域，供程序后续叠加中文旁白框或对白气泡。保持同一角色跨格、跨页可识别；不新增角色，不补写结局或真相。图像模型不要绘制任何文字、气泡、字母、数字、标志或水印。`;
+      const panelBeats=asset.panels.map(panel=>{
+        if(panel.type!=="dialogue")return `第${panel.panel_index}格（无尖角旁白方框）：${JSON.stringify(panel.text)}`;
+        const assignment=(task.bundle.visual_context.speech_assignments||[]).find(item=>item.text===panel.text),speaker=String(panel.speaker||assignment?.speaker||"").trim(),visualRole=String(assignment?.visual_role||"").trim();
+        return speaker&&speaker!=="无法确认"?`第${panel.panel_index}格（对白气泡，说话人：${speaker}${visualRole?`，画面身份：${visualRole}`:""}）：${JSON.stringify(panel.text)}。本格必须清楚画出说话人“${speaker}”，气泡尖角的唯一终点必须指向“${speaker}”的嘴部附近，绝不能指向听话人、宫女、侍从、旁观者或其他角色`:`第${panel.panel_index}格（说话人无法可靠确认，必须使用无尖角对白框）：${JSON.stringify(panel.text)}。禁止给这个文字框添加指向任何人物的尖角`;
+      }).join("；");
+      const prompt = `竖版知乎故事分格漫画成品页，第 ${index + 1}/${task.bundle.image_assets.length} 页。用户已选择画风“${asset.visual_style_label}”：${asset.visual_style_prompt}。全项目强制统一渲染规范：${task.bundle.visual_context.render_style}。严禁本页或不同页擅自切换绘画媒介。整张图必须清楚分成 ${asset.panel_count} 个从上到下排列的横向漫画格，每格等宽，以清晰的白色横向间隔线分隔；每格只画一个连续镜头，镜头景别有变化，构图参考成熟的手机竖屏中文条漫。角色视觉圣经（所有格、所有页必须逐项严格复现，不得改变人物的性别呈现、年龄、脸型、发型、服装颜色和关键物件）：${JSON.stringify(task.bundle.visual_context.character_bible)}。固定时空与色彩：${task.bundle.visual_context.setting}；${task.bundle.visual_context.palette}。本页逐格画面、说话人归属与唯一允许出现的文字：${panelBeats}。必须把每句指定中文直接、完整、逐字绘制进对应漫画格；不得增字、漏字、改字、重复、产生乱码或把文字放错格。旁白必须使用无尖角的黑色细边白底方框；只有已明确说话人的 dialogue 才能使用带尖角的小型白底漫画气泡。每一个气泡都先确定说话人，再确定尖角：尖角必须从气泡边缘朝真正说话人的嘴部延伸，终点落在该人物嘴部附近，不能仅仅指向距离气泡最近的人，更不能指向听话人、旁观者、侍从或宫女。若说话人未出现在该格，必须重新构图让说话人入镜；若说话人无法可靠确认，则只能使用无尖角文字框。文字框大小随内容自适应，放在天空、墙面、虚化背景等低信息角落，左右位置可交替，绝对不得遮挡人物脸部、手部、关键动作或关键物件。除上述指定文字外，画面中禁止出现任何其他可读文字、字母、数字、标志或水印；手机、电脑、文件和招牌若入镜，其界面与内容必须虚化或不可读。保持同一角色跨格、跨页可识别；不新增角色，不补写结局或真相。`;
       const signal = AbortSignal.any([AbortSignal.timeout(300000), taskControllers.get(task.id)?.signal].filter(Boolean));
       const response = await fetch(`${imageBaseUrl}/images/generations`, { method:"POST", headers:{ Authorization:`Bearer ${imageApiKey}`, "Content-Type":"application/json" }, body:JSON.stringify({ model:imageModel, prompt, size:"1024x1536", response_format:"b64_json", watermark:false }), signal });
       const payload = await response.json().catch(() => ({}));
@@ -602,7 +612,7 @@ async function runMaterial(task) {
       if (data?.b64_json) asset._image_buffer = Buffer.from(data.b64_json, "base64");
       else if (data?.url) { const upstream=await fetch(data.url,{signal:AbortSignal.any([AbortSignal.timeout(30000),taskControllers.get(task.id)?.signal].filter(Boolean))});if(!upstream.ok)throw new Error(`Seedream 图片下载失败（${upstream.status}）`);asset._image_buffer=Buffer.from(await upstream.arrayBuffer()); }
       else throw new Error("Seedream 响应缺少 b64_json 或 url");
-      asset._image_file=await saveMedia(task.id,asset.file_name,asset._image_buffer);asset.image_url = `/api/tasks/${task.id}/images/${index}`;
+      asset._image_file=await saveMedia(task.id,asset.file_name,asset._image_buffer);asset.image_url = `/api/tasks/${task.id}/images/${index}`;asset.text_embedded=true;
       asset.status="succeeded"; success=true; upstreamState.image.verified=true; upstreamState.image.last_error=null;
     } catch (err) { if(task.status==="canceled")return;lastError=err; upstreamState.image.verified=false; upstreamState.image.last_error=err?.message || "未知错误"; }
     if (!success) { asset.status="failed"; errors.push(`${asset.file_name}: ${lastError?.message || "未知错误"}`); }
@@ -650,7 +660,7 @@ function publicTask(task) {
 }
 function publicProject(project){
   const analysis=project.analysis||{},content=analysis.content_analysis||{};
-  return {analysis:{story_profile:{project_id:analysis.story_profile?.project_id,primary_category:analysis.story_profile?.primary_category},content_analysis:{evidence_pool:(content.evidence_pool||[]).map(item=>({ref_id:item.ref_id,quote:item.quote}))},candidates:(analysis.candidates||[]).map(item=>({candidate_id:item.candidate_id,hook_type:item.hook_type,rendered_text:item.rendered_text,recommendation_reason:item.recommendation_reason,recommended_material:item.recommended_material,lines:item.lines?.map(line=>({type:line.type,text:line.text,source_refs:line.source_refs}))})),best_candidate_id:analysis.best_candidate_id},selected_hook_profile:project.selectedHook,recommendation:project.selectedHook?recommendationFor(project.selectedHook.final_text,project.selectedHook.hook_type):null,expires_at:project.expires_at};
+  return {analysis:{story_profile:{project_id:analysis.story_profile?.project_id,primary_category:analysis.story_profile?.primary_category},content_analysis:{evidence_pool:(content.evidence_pool||[]).map(item=>({ref_id:item.ref_id,quote:item.quote}))},candidates:(analysis.candidates||[]).map(item=>({candidate_id:item.candidate_id,hook_type:item.hook_type,rendered_text:item.rendered_text,recommendation_reason:item.recommendation_reason,recommended_material:item.recommended_material,lines:item.lines?.map(line=>({type:line.type,speaker:line.speaker||undefined,text:line.text,source_refs:line.source_refs}))})),best_candidate_id:analysis.best_candidate_id},selected_hook_profile:project.selectedHook,recommendation:project.selectedHook?recommendationFor(project.selectedHook.final_text,project.selectedHook.hook_type):null,expires_at:project.expires_at};
 }
 function imageContentType(buffer){return buffer?.[0]===0x89&&buffer?.[1]===0x50?"image/png":buffer?.[0]===0xff&&buffer?.[1]===0xd8?"image/jpeg":"application/octet-stream";}
 
@@ -674,9 +684,9 @@ async function regenerateAsset(task,index,body={}){
   if(task.bundle.selected_type!=="comic")throw error("单图故事卡请使用重新排版或更换背景。",409);
   const asset=task.bundle.image_assets[Number(index)];if(!asset)throw error("没有找到这一页",404);
   asset.versions ||= [];
-  const previous={version:asset.versions.length+1,created_at:Date.now(),image_url:asset.image_url||null,css_background:asset.css_background,colors:[...(asset.colors||[])],preview_available:Boolean(asset._image_file||asset.colors?.length>=2),_image_file:null};
+  const previous={version:asset.versions.length+1,created_at:Date.now(),image_url:asset.image_url||null,css_background:asset.css_background,colors:[...(asset.colors||[])],text_embedded:Boolean(asset.text_embedded),preview_available:Boolean(asset._image_file||asset.colors?.length>=2),_image_file:null};
   if(asset._image_file){const buffer=await readFile(asset._image_file).catch(()=>null);if(buffer){previous._image_file=await saveMedia(task.id,`previous-${index}-${Date.now()}.${extname(asset._image_file).replace(/^\./,"")||"png"}`,buffer);}}
-  asset.versions.push(previous);asset.issue={type:String(body.issue_type||"其他问题"),note:String(body.note||"").slice(0,500)};asset.status="queued";delete asset._image_buffer;delete asset.image_url;
+  asset.versions.push(previous);asset.issue={type:String(body.issue_type||"其他问题"),note:String(body.note||"").slice(0,500)};asset.status="queued";delete asset._image_buffer;delete asset.image_url;delete asset.text_embedded;
   if(isDemoMode&&asset.colors?.length){asset.colors=[...asset.colors].reverse();asset.css_background=`linear-gradient(145deg,${asset.colors[0]},${asset.colors[1]})`;}
   const material=task.subtasks.find(item=>item.id==="material");material.status="running";material.message=`正在重新生成第 ${Number(index)+1} 页`;task.status="running";task.progress=70;task.updated_at=Date.now();await persistState();
   runMaterial(task).catch(()=>{material.status="failed";material.message=`第 ${Number(index)+1} 页没有生成成功，请重试。`;finalizeTask(task);});return publicTask(task);
@@ -684,8 +694,8 @@ async function regenerateAsset(task,index,body={}){
 async function restoreAssetVersion(task,index){
   const asset=task.bundle.image_assets[Number(index)],version=asset?.versions?.pop();if(!asset||!version)throw error("没有可恢复的上一版",409);
   asset.css_background=version.css_background||asset.css_background;
-  if(version._image_file){const buffer=await readFile(version._image_file).catch(()=>null);if(!buffer)throw error("上一版图片文件已经过期",404);asset._image_file=await saveMedia(task.id,asset.file_name,buffer);asset.image_url=`/api/tasks/${task.id}/images/${index}`;}
-  else{delete asset._image_file;delete asset._image_buffer;delete asset.image_url;}
+  if(version._image_file){const buffer=await readFile(version._image_file).catch(()=>null);if(!buffer)throw error("上一版图片文件已经过期",404);asset._image_file=await saveMedia(task.id,asset.file_name,buffer);asset.image_url=`/api/tasks/${task.id}/images/${index}`;asset.text_embedded=Boolean(version.text_embedded);}
+  else{delete asset._image_file;delete asset._image_buffer;delete asset.image_url;delete asset.text_embedded;}
   asset.status="succeeded";await persistState();return publicTask(task);
 }
 
