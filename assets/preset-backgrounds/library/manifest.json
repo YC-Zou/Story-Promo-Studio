@@ -1,0 +1,210 @@
+{
+  "generated_at": "2026-09-14T02:49:50.444Z",
+  "model": "doubao-seedream-5-0-pro-260628",
+  "size": "1024x1536",
+  "watermark": false,
+  "count": 25,
+  "succeeded": 25,
+  "assets": [
+    {
+      "id": "genre-romance",
+      "dimension": "genre",
+      "label": "言情",
+      "scene": "雨后城市街角的双人远影与一把伞，关系暧昧，柔和电影光",
+      "file_name": "genre-romance.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-realistic-emotion",
+      "dimension": "genre",
+      "label": "现实情感",
+      "scene": "普通家庭的安静餐桌与窗边旧物，生活质感，克制温暖",
+      "file_name": "genre-realistic-emotion.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-suspense",
+      "dimension": "genre",
+      "label": "悬疑",
+      "scene": "雨夜公寓走廊、半开的门与遗落手机，冷暖光对比，未知线索",
+      "file_name": "genre-suspense.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-thriller",
+      "dimension": "genre",
+      "label": "惊悚",
+      "scene": "空医院长廊与闪烁红色安全灯，远处模糊门影，压迫但不血腥",
+      "file_name": "genre-thriller.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-science-fiction",
+      "dimension": "genre",
+      "label": "科幻",
+      "scene": "未来城市天际线与近地轨道光环，人物剪影极小，理性宏大",
+      "file_name": "genre-science-fiction.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-wuxia",
+      "dimension": "genre",
+      "label": "武侠",
+      "scene": "山雨将至的古道、竹林与一柄入鞘长剑，东方水墨电影感",
+      "file_name": "genre-wuxia.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-political-intrigue",
+      "dimension": "genre",
+      "label": "权谋",
+      "scene": "深宫长廊、层叠帷幕与棋盘残子，暗金冷青，克制肃杀",
+      "file_name": "genre-political-intrigue.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-fantasy",
+      "dimension": "genre",
+      "label": "玄幻奇幻",
+      "scene": "云海中的巨型古门与发光符石，东方幻想，奇观但不杂乱",
+      "file_name": "genre-fantasy.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-folk-tales",
+      "dimension": "genre",
+      "label": "民间奇闻",
+      "scene": "南方旧宅天井、纸灯笼与木门缝中的微光，民俗神秘感",
+      "file_name": "genre-folk-tales.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-fan-fiction",
+      "dimension": "genre",
+      "label": "同人",
+      "scene": "舞台后台般的多世界交汇空间，熟悉感与新想象并存，不出现任何受版权保护角色",
+      "file_name": "genre-fan-fiction.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-historical-romance",
+      "dimension": "genre",
+      "label": "演义",
+      "scene": "旌旗远城与风沙古战场，史诗叙事，人物只作远景剪影",
+      "file_name": "genre-historical-romance.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-high-concept",
+      "dimension": "genre",
+      "label": "脑洞",
+      "scene": "日常房间被一道不合常理的发光裂隙分成两个世界，荒诞惊奇",
+      "file_name": "genre-high-concept.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-pure-love",
+      "dimension": "genre",
+      "label": "纯爱",
+      "scene": "清晨窗帘、两只并放的杯子与柔和日光，纯净亲密，留白充足",
+      "file_name": "genre-pure-love.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-esports",
+      "dimension": "genre",
+      "label": "电竞",
+      "scene": "空竞技场与发光电竞桌，赛前安静时刻，蓝紫霓虹但不过度炫目",
+      "file_name": "genre-esports.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-abo",
+      "dimension": "genre",
+      "label": "ABO",
+      "scene": "现代精英公寓与玻璃幕墙，双人关系张力用距离和光影表达，不使用符号文字",
+      "file_name": "genre-abo.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-social-life",
+      "dimension": "genre",
+      "label": "世情",
+      "scene": "老城巷口、早点铺蒸汽与来往人影，现实群像，烟火气与复杂人情",
+      "file_name": "genre-social-life.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "genre-marriage",
+      "dimension": "genre",
+      "label": "婚恋",
+      "scene": "夜晚客厅里两把相对却空着的椅子，婚姻关系张力，成熟克制",
+      "file_name": "genre-marriage.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "era-ancient",
+      "dimension": "era",
+      "label": "古代",
+      "scene": "古代庭院、月洞门、石阶与灯笼，服化道时代准确，无现代物件",
+      "file_name": "era-ancient.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "era-modern",
+      "dimension": "era",
+      "label": "现代",
+      "scene": "当代城市住宅与街景，真实生活细节，现代材质与自然光",
+      "file_name": "era-modern.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "era-history",
+      "dimension": "era",
+      "label": "历史",
+      "scene": "具有真实历史质感的城墙、驿道与旧地图纹理，庄重可信",
+      "file_name": "era-history.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "era-future",
+      "dimension": "era",
+      "label": "未来",
+      "scene": "未来都市与干净的公共交通空间，可信科技细节，简洁而非赛博堆砌",
+      "file_name": "era-future.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "era-alternate-world",
+      "dimension": "era",
+      "label": "架空",
+      "scene": "不存在于现实王朝的山城宫阙与独特建筑体系，完整世界观",
+      "file_name": "era-alternate-world.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "era-apocalypse",
+      "dimension": "era",
+      "label": "末日",
+      "scene": "被自然重新覆盖的空城街道与远处避难灯光，荒凉但保留希望",
+      "file_name": "era-apocalypse.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "era-republic-era",
+      "dimension": "era",
+      "label": "民国",
+      "scene": "民国时期街巷、木格窗与旧式路灯，年代服饰只作远景，考据感",
+      "file_name": "era-republic-era.jpg",
+      "status": "existing"
+    },
+    {
+      "id": "era-period",
+      "dimension": "era",
+      "label": "年代",
+      "scene": "二十世纪旧居民院、搪瓷杯与木家具，胶片质感，具体生活年代感",
+      "file_name": "era-period.jpg",
+      "status": "existing"
+    }
+  ]
+}

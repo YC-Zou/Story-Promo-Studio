@@ -1,0 +1,29 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Application runtime data
+work/
+.runtime/
+*.log
+
+# Stable Audio local environment, weights, cache, and generated files
+third_party/stable-audio-3-tflite/.venv/
+third_party/stable-audio-3-tflite/models/tflite/*
+!third_party/stable-audio-3-tflite/models/tflite/.gitkeep
+third_party/stable-audio-3-tflite/output/
+third_party/stable-audio-3-tflite/loras/
+third_party/stable-audio-3-tflite/lora_cache/
+third_party/stable-audio-3-tflite/.cache/
+third_party/stable-audio-3-tflite/**/__pycache__/
+*.pyc
+*.tflite
+*.wav
+*.mp3
+
+# Editor / operating system
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

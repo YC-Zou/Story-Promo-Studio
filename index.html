@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#f4f5f2" />
+  <title>引力场 · 知乎故事站外宣发助手</title>
+  <link rel="stylesheet" href="./styles.css?v=34" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" data-action="go-input"><span>引</span><b>引力场</b><small>知乎故事站外宣发助手</small></a>
+    <div class="service-state" id="serviceState"><i></i><span>正在检查服务</span></div>
+    <button class="button ghost" id="newProjectBtn" type="button">新建项目</button>
+  </header>
+  <main class="shell">
+    <nav class="steps" aria-label="制作进度" id="stepNav">
+      <button data-step="input" type="button"><b>1</b><span>作品输入</span></button>
+      <button data-step="hooks" type="button"><b>2</b><span>确认钩子</span></button>
+      <button data-step="action" type="button"><b>3</b><span>后续操作</span></button>
+      <button data-step="background" type="button"><b>4</b><span>B 类底图</span></button>
+      <button data-step="progress" type="button"><b>5</b><span>生成进度</span></button>
+      <button data-step="result" type="button"><b>6</b><span>结果导出</span></button>
+    </nav>
+
+    <section class="page" data-page="input">
+      <div class="page-head"><div><small>STEP 01</small><h1>从完整故事开始</h1><p>正文是事实、人物关系和所有物料的唯一依据。</p></div><span class="limit" id="charCount">0 / 50,000</span></div>
+      <div class="input-grid">
+        <div class="card form-card">
+          <label>作品名<input id="titleInput" maxlength="100" autocomplete="off" placeholder="请输入作品名" /></label>
+          <label>作者<input id="authorInput" maxlength="80" autocomplete="off" placeholder="请输入作者名" /></label>
+          <label>原作链接 <em>导出发布包前必填</em><input id="sourceUrlInput" type="url" placeholder="https://www.zhihu.com/..." /></label>
+          <label>赛事授权故事 <em>可选</em><select id="sampleSelect"><option value="">不载入样例</option></select></label>
+          <label class="check"><input id="authorizationInput" type="checkbox" /> 我确认拥有该作品的使用及宣发授权</label>
+        </div>
+        <div class="card story-card">
+          <div class="story-toolbar"><b>完整正文</b><div><button class="text-button" id="pasteBtn" type="button">粘贴</button><button class="text-button" id="uploadBtn" type="button">上传 TXT / MD / DOCX</button></div></div>
+          <input id="fileInput" type="file" accept=".txt,.md,.markdown,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+          <textarea id="bodyInput" placeholder="在这里粘贴完整短篇正文。超过 50,000 个非空白字符时会阻止分析，不会截断。"></textarea>
+          <p class="field-error" id="inputError" role="alert"></p>
+        </div>
+      </div>
+      <div class="page-actions"><span></span><button class="button primary" id="analyzeBtn" type="button">分析并生成 3 条钩子</button></div>
+    </section>
+
+    <section class="page" data-page="hooks" hidden>
+      <div class="page-head"><div><small>STEP 02</small><h1>选择并确认钩子</h1><p>系统推荐不替你决定。编辑或自定义后都会重新做事实与剧透校验。</p></div><button class="button ghost" data-action="go-input" type="button">返回作品</button></div>
+      <div class="analysis-summary card" id="analysisSummary"></div>
+      <div class="hook-grid" id="hookGrid"></div>
+      <div class="card editor-card">
+        <div class="editor-head"><div><small>最终确认文本</small><h2 id="editorTitle">编辑已选钩子</h2></div><span id="hookLength">0 / 300</span></div>
+        <textarea id="hookEditor" maxlength="600" placeholder="选择一条候选，或直接输入 20—300 个非空白字符的自定义钩子"></textarea>
+        <div class="validation" id="validationPanel" aria-live="polite"><span>修改后需要重新校验</span></div>
+        <div class="page-actions compact"><span></span><button class="button primary" id="confirmHookBtn" type="button">校验并确认 C 类钩子</button></div>
+      </div>
+    </section>
+
+    <section class="page" data-page="action" hidden>
+      <div class="page-head"><div><small>STEP 03</small><h1>C 类钩子已确认</h1><p>它是唯一文案输入。你可以到此结束，或继续制作漫画 / 单图。</p></div><button class="button ghost" data-action="back-hooks" type="button">修改钩子</button></div>
+      <article class="card final-hook"><span>C 类成品</span><pre id="finalHookText"></pre><div><button class="button ghost" id="copyHookBtn" type="button">复制文案</button><button class="button ghost" id="downloadHookBtn" type="button">下载 hook.txt</button></div></article>
+      <div class="route-grid">
+        <button class="route-card" data-material="comic" type="button"><span class="route-mark">A</span><div><h2>连续漫画</h2><p>2—8 页，由系统自动分镜、定风格并保持角色连续。</p><strong id="comicScore"></strong></div><i>选择 A 类 →</i></button>
+        <button class="route-card" data-material="card" type="button"><span class="route-mark">B</span><div><h2>单图宣传卡</h2><p>从当前主类别的 3 张底图中选择，自动合成 1080×1440。</p><strong id="cardScore"></strong></div><i>选择 B 类 →</i></button>
+      </div>
+      <div class="recommendation card" id="materialRecommendation"></div>
+    </section>
+
+    <section class="page" data-page="background" hidden>
+      <div class="page-head"><div><small>STEP 04 · B 类</small><h1>选择一张预设底图</h1><p>三张底图都来自同一主类别，短句和排版参数不可编辑。</p></div><button class="button ghost" data-action="go-action" type="button">返回选择形式</button></div>
+      <div class="background-grid" id="backgroundGrid"></div>
+      <div class="page-actions"><span id="backgroundHint">请选择一张底图</span><button class="button primary" id="startCardBtn" type="button" disabled>使用这张底图生成</button></div>
+    </section>
+
+    <section class="page" data-page="progress" hidden>
+      <div class="page-head"><div><small>STEP 05</small><h1>正在生成视觉物料</h1><p id="progressSubtitle">图片与 BGM 并行处理，失败项可按冻结输入重试。</p></div><span class="status-badge" id="taskStatusBadge">queued</span></div>
+      <div class="card progress-card">
+        <div class="progress-main"><span id="progressPercent">0%</span><div><b id="progressTitle">任务已排队</b><p id="progressMessage">等待服务开始处理</p></div></div>
+        <div class="progress-track"><i id="progressBar"></i></div>
+        <div class="subtasks" id="subtaskList"></div>
+        <div class="page-actions compact"><button class="button ghost" id="retryTaskBtn" type="button" hidden>重试失败项</button><button class="button primary" id="viewResultBtn" type="button" hidden>查看结果</button></div>
+      </div>
+    </section>
+
+    <section class="page" data-page="result" hidden>
+      <div class="page-head"><div><small>STEP 06</small><h1>结果与导出</h1><p>仅导出当前视觉类型；BGM 失败时仍可导出图片包。</p></div><span class="status-badge" id="resultStatusBadge">succeeded</span></div>
+      <div class="result-grid">
+        <section class="card"><div class="section-title"><h2 id="visualResultTitle">视觉物料</h2><span id="assetCount"></span></div><div class="visual-results" id="visualResults"></div></section>
+        <aside class="card result-side">
+          <div><small>发布文案（C 类原文）</small><pre id="publishCopy"></pre><button class="text-button" id="copyResultHookBtn" type="button">复制</button></div>
+          <div class="audio-box"><small>BGM · 约 20 秒纯音乐 · AI Prompt → Stable Audio</small><strong id="musicPreset"></strong><button id="bgmPlayBtn" class="button ghost" type="button" hidden>试听 BGM</button><p id="audioState"></p><details id="musicPromptDetails"><summary>查看实际音乐 Prompt</summary><pre id="musicPrompt"></pre><small>避免项（Negative Prompt）</small><p class="muted-note">告诉音乐模型不要生成人声、噪声和不合题材的风格，不是歌词。</p><pre id="musicNegativePrompt"></pre></details></div>
+          <div class="export-warning" id="exportWarning"></div>
+          <button class="button primary full" id="exportPackageBtn" type="button">准备当前发布包 ZIP</button>
+          <a class="button primary full" id="packageDownloadLink" href="#" download hidden>下载已准备好的 ZIP</a>
+          <button class="button ghost full" id="otherMaterialBtn" type="button">使用同一钩子生成另一种物料</button>
+          <div id="historyWrap" hidden><small>历史视觉物料</small><div class="history-list" id="historyList"></div></div>
+        </aside>
+      </div>
+    </section>
+  </main>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+  <dialog id="confirmNewDialog"><h2>新建项目？</h2><p>这会清空当前浏览器中的项目状态；已经下载到本机的文件不会被删除。</p><div><button class="button ghost" data-dialog-cancel type="button">取消</button><button class="button danger" data-dialog-confirm type="button">新建</button></div></dialog>
+  <script type="module" src="./app.js?v=35"></script>
+</body>
+</html>
