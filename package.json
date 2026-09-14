@@ -6,7 +6,11 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node tests/run-tests.mjs",
-    "test:external": "node tests/smoke.mjs"
+    "test:external": "node tests/smoke.mjs",
+    "configure:mac": "bash scripts/configure-api.sh",
+    "start:mac": "bash scripts/start-all.sh",
+    "start:mac:no-bgm": "bash scripts/start-all.sh --no-bgm",
+    "stop:mac": "bash scripts/stop-all.sh"
   },
   "engines": {
     "node": ">=20"
