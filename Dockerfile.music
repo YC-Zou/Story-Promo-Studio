@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/data/huggingface \
+    GRADIO_ANALYTICS_ENABLED=false \
+    GRADIO_SERVER_NAME=0.0.0.0 \
+    PORT=7871
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY third_party/stable-audio-3-tflite/requirements.txt ./requirements.txt
+COPY third_party/stable-audio-3-tflite/requirements-gradio.txt ./requirements-gradio.txt
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements.txt -r requirements-gradio.txt
+
+COPY third_party/stable-audio-3-tflite/ ./
+COPY scripts/start-music-service.sh /usr/local/bin/start-music-service
+RUN chmod +x /usr/local/bin/start-music-service
+
+VOLUME ["/data"]
+EXPOSE 7871
+
+CMD ["start-music-service"]

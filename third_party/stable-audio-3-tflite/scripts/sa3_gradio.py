@@ -1268,7 +1268,8 @@ def build_ui(initial_dit: str, initial_decoder: str, initial_precision: str, *,
         )
 
     # gradio 6 moved `css` from the Blocks constructor to launch().
-    demo.queue(max_size=16).launch(share=share, server_name="127.0.0.1",
+    demo.queue(max_size=16).launch(share=share,
+                                   server_name=os.getenv("GRADIO_SERVER_NAME", "127.0.0.1"),
                                    server_port=server_port, css=_css,
                                    allowed_paths=[str(OUTPUT_DIR)],
                                    prevent_thread_lock=False, show_error=True)
