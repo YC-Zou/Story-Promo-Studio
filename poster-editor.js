@@ -22,7 +22,7 @@
     mono:"rgba(18,20,23,.50)", clear:"rgba(7,11,16,.18)"
   };
 
-  let canvas, task, asset, design, appState, autosaveKey = "", history = [], historyIndex = -1, drawToken = 0, toastTimer, renderReady = false;
+  let canvas, task, asset, design, appState, history = [], historyIndex = -1, drawToken = 0, toastTimer, renderReady = false, savedForReturn = false;
 
   function toast(message) {
     const el = $("#editorToast"); el.textContent = message; el.classList.add("is-visible");
@@ -59,15 +59,17 @@
       history = history.slice(0, historyIndex + 1); history.push(json);
       if (history.length > 30) history.shift(); historyIndex = history.length - 1;
     }
-    localStorage.setItem(autosaveKey, json); $("#saveState").textContent = "已自动保存";
-    updateHistory(); updateControls(); if (render) renderDesign();
+    savedForReturn = false;
+    $("#saveState").textContent = "有未保存修改";
+    $("#backBtn").disabled = true;
+    updateControls(); if (render) renderDesign();
   }
   function restore(index) {
     if (index < 0 || index >= history.length) return;
-    historyIndex = index; design = JSON.parse(history[index]); localStorage.setItem(autosaveKey, history[index]);
-    updateHistory(); updateControls(); renderDesign();
+    historyIndex = index; design = JSON.parse(history[index]); savedForReturn = false;
+    $("#saveState").textContent = "有未保存修改"; $("#backBtn").disabled = true;
+    updateControls(); renderDesign();
   }
-  function updateHistory() { $("#undoBtn").disabled = historyIndex <= 0; $("#redoBtn").disabled = historyIndex >= history.length - 1; }
   function updateControls() {
     $$('[data-style]').forEach(button => button.classList.toggle("is-active", button.dataset.style === design.style));
     $("#linesInput").value = design.lines.join("\n"); $("#toneSelect").value = design.tone;
@@ -187,9 +189,7 @@
     $("#applyCopyBtn").onclick = () => { design.lines = splitCopy($("#linesInput").value); design.positions = {}; snapshot(); toast("分句已应用"); };
     $("#toneSelect").onchange = event => { design.tone = event.target.value; snapshot(); };
     $("#resetLayoutBtn").onclick = () => { design.positions = {}; snapshot(); toast("已恢复推荐排版"); };
-    $("#undoBtn").onclick = () => restore(historyIndex - 1); $("#redoBtn").onclick = () => restore(historyIndex + 1);
-    $("#backBtn").onclick = () => { location.href = "./"; };
-    $("#saveReturnBtn").onclick = () => {
+    $("#saveBtn").onclick = () => {
       if (!renderReady) return toast("画面仍在载入，请稍候再保存");
       canvas.discardActiveObject(); canvas.requestRenderAll();
       const current = styles.find(item => item.id === design.style);
@@ -201,13 +201,14 @@
       const value = JSON.stringify(appState);
       try { sessionStorage.setItem(STORAGE_KEY,value); localStorage.setItem(STORAGE_KEY,value); }
       catch { return toast("浏览器存储空间不足，暂时无法保存这张定稿"); }
-      location.href = "./?poster_saved=1";
+      savedForReturn = true;
+      $("#saveState").textContent = "已保存，可以返回";
+      $("#backBtn").disabled = false;
+      toast("定稿已保存，请点击返回开始生成");
     };
-    $("#exportBtn").onclick = () => {
-      canvas.discardActiveObject(); canvas.requestRenderAll();
-      const url = canvas.toDataURL({ format:"png", multiplier:2, enableRetinaScaling:false });
-      const filename = `${String(task.bundle?.project_metadata?.title || "故事").replace(/[\\/:*?"<>|]/g,"-")}-${styles.find(item=>item.id===design.style)?.name || "宣传图"}.png`;
-      const link = Object.assign(document.createElement("a"), { href:url, download:filename }); document.body.append(link); link.click(); link.remove(); toast("已生成 1080 × 1440 高清宣传图");
+    $("#backBtn").onclick = () => {
+      if (!savedForReturn) return toast("请先保存当前定稿");
+      location.href = "./?start_card=1";
     };
     document.addEventListener("keydown", event => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); restore(historyIndex + (event.shiftKey ? 1 : -1)); }
@@ -217,15 +218,14 @@
   function boot() {
     if (!window.fabric) return alert("宣传图编辑组件载入失败");
     task = getTask(); asset = task?.bundle?.image_assets?.[assetIndex];
-    if (!task || task.bundle?.selected_type !== "card" || !asset) { $("#saveState").textContent = "未找到可编辑的宣传图"; $("#exportBtn").disabled = true; return; }
+    if (!task || task.bundle?.selected_type !== "card" || !asset) { $("#saveState").textContent = "未找到可编辑的宣传图"; $("#saveBtn").disabled = true; return; }
     $("#posterName").textContent = `《${task.bundle?.project_metadata?.title || "故事"}》宣传图`;
     canvas = new fabric.Canvas("posterCanvas", { width:W, height:H, preserveObjectStacking:true, selection:false });
     canvas.on("object:modified", event => {
       const key = event.target?.designKey; if (!key) return;
       design.positions ||= {}; design.positions[design.style] ||= {}; design.positions[design.style][key] = { left:event.target.left, top:event.target.top }; snapshot(false);
     });
-    autosaveKey = `poster-style-draft-v4:${task.project_id}:${asset.background_id || assetIndex}`;
-    const saved = appState?.posterDesign?.backgroundId === asset.background_id ? JSON.stringify(appState.posterDesign) : localStorage.getItem(autosaveKey);
+    const saved = appState?.posterDesign?.backgroundId === asset.background_id ? JSON.stringify(appState.posterDesign) : "";
     try { design = saved ? JSON.parse(saved) : null; } catch { design = null; }
     if (design?.style === "dialogue") design.style = "fragments";
     if (design) { delete design.previewDataUrl; delete design.savedAt; delete design.styleName; delete design.accent; }
@@ -233,8 +233,8 @@
     design.backgroundId ||= asset.background_id;
     design.lines = splitCopy(design.lines.join("\n"));
     history = [JSON.stringify(design)]; historyIndex = 0;
-    renderStyles(); bind(); updateHistory(); updateControls(); renderBackgrounds(); renderDesign();
-    $("#saveState").textContent = saved ? "已恢复上次设计" : "已自动保存";
+    renderStyles(); bind(); updateControls(); renderBackgrounds(); renderDesign();
+    $("#saveState").textContent = "尚未保存";
     $("#canvasShell").style.setProperty("--zoom", window.innerWidth < 980 ? ".68" : ".78");
   }
 

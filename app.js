@@ -117,6 +117,18 @@ async function init() {
   hydrateInputs();
   await Promise.allSettled([checkHealth(), loadSamples()]);
   renderAll();
+  const startup = new URLSearchParams(location.search);
+  if (startup.get("start_card") === "1") {
+    window.history.replaceState(null, "", location.pathname);
+    if (state.posterDesign?.backgroundId === state.backgroundId && state.posterDesign?.previewDataUrl) {
+      await startGeneration("card");
+      return;
+    }
+    state.page = "background";
+    saveState();
+    renderAll();
+    toast("没有找到已保存的宣传图，请先保存定稿");
+  }
   if (state.task && ["queued", "running"].includes(state.task.status)) resumeTask();
 }
 

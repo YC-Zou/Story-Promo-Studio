@@ -8,12 +8,10 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="./"><span>引</span><div><b>宣传图样式编辑</b><small>把故事钩子排成适合传播的画面</small></div></a>
-    <div class="history"><button id="undoBtn" type="button" title="撤销 Ctrl+Z">↶</button><button id="redoBtn" type="button" title="重做 Ctrl+Y">↷</button></div>
-    <span class="save-state" id="saveState">正在载入…</span>
-    <button class="return-button" id="backBtn" type="button">返回</button>
-    <button class="save-button" id="saveReturnBtn" type="button">保存并返回</button>
-    <button class="export" id="exportBtn" type="button">导出高清 PNG</button>
+    <div class="brand"><span>引</span><div><b>宣传图样式编辑</b><small>把故事钩子排成适合传播的画面</small></div></div>
+    <span class="save-state" id="saveState">尚未保存</span>
+    <button class="save-button" id="saveBtn" type="button">保存</button>
+    <button class="return-button" id="backBtn" type="button" disabled>返回</button>
   </header>
 
   <main class="editor-shell">
@@ -51,6 +49,6 @@
 
   <div class="toast" id="editorToast" role="status" aria-live="polite"></div>
   <script src="./third_party/fabric/fabric.min.js"></script>
-  <script src="./poster-editor.js?v=4"></script>
+  <script src="./poster-editor.js?v=5"></script>
 </body>
 </html>

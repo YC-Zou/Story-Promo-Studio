@@ -23,12 +23,9 @@ button:disabled { cursor: not-allowed; opacity: .35; }
 .brand div { display: grid; gap: 2px; }
 .brand b { font-size: 13px; }
 .brand small, .section-head small, .preview-head small { color: var(--muted); font-size: 9px; }
-.history { display: flex; gap: 5px; margin-left: 24px; }
-.history button { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #526075; font-size: 17px; }
 .save-state { margin-left: auto; color: var(--muted); font-size: 9px; }
-.export,.save-button,.return-button { height: 39px; padding: 0 14px; border-radius: 8px; font-size: 10px; font-weight: 800; }
-.export { border: 0; background: var(--blue); color: #fff; box-shadow: 0 7px 18px rgba(23,104,233,.2); }
-.save-button { border: 0; background: #17202b; color: #fff; }
+.save-button,.return-button { height: 39px; padding: 0 18px; border-radius: 8px; font-size: 10px; font-weight: 800; }
+.save-button { border: 0; background: var(--blue); color: #fff; box-shadow: 0 7px 18px rgba(23,104,233,.2); }
 .return-button { border: 1px solid var(--line); background: #fff; color: #526075; }
 
 .editor-shell { height: calc(100vh - 66px); display: grid; grid-template-columns: 310px minmax(470px,1fr); }
