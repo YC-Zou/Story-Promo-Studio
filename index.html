@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#f4f5f2" />
   <title>引力场 · 知乎故事站外宣发助手</title>
-  <link rel="stylesheet" href="./styles.css?v=44" />
+  <link rel="stylesheet" href="./styles.css?v=45" />
   <link rel="stylesheet" href="./poster-entry.css?v=1" />
   <link rel="stylesheet" href="./poster-flow.css?v=1" />
 </head>
@@ -109,7 +109,7 @@
     <section class="page" data-page="result" hidden>
       <div class="page-head"><div><small>第 5 步，共 5 步</small><h1>复核并导出</h1><p>发布前请检查人物、情节、文字和原作信息。AI 生成内容可能出现偏差。</p></div><span class="status-badge" id="resultStatusBadge">已完成</span></div>
       <div class="result-grid">
-        <section class="card"><div class="section-title"><h2 id="visualResultTitle">宣传素材</h2><span id="assetCount"></span></div><div class="visual-results" id="visualResults"></div></section>
+        <section class="card"><div class="section-title"><h2 id="visualResultTitle">宣传素材</h2><span id="assetCount"></span></div><div class="visual-results" id="visualResults"></div><section class="chat-export" id="chatExportCard" hidden><div class="section-title"><div><small>独立素材 · 精华对话</small><h2 id="chatExportTitle">聊天记录</h2></div><span id="chatDurationLabel"></span></div><p id="chatExportSummary"></p><div class="chat-export-layout"><canvas id="chatCanvas" width="1080" height="1920" aria-label="手机聊天记录预览"></canvas><div><button class="button primary full" id="downloadChatImageBtn" type="button">下载聊天截图 PNG</button><label class="music-option compact"><input id="chatBgmInput" type="checkbox"><span><b>聊天视频使用本次 BGM</b><small id="chatBgmHint">仅在配乐生成成功时可用</small></span></label><button class="button ghost full" id="buildChatVideoBtn" type="button">生成聊天视频</button><video id="chatVideoPreview" controls playsinline hidden></video><a class="button primary full" id="downloadChatVideoLink" href="#" download hidden>下载聊天视频 WebM</a><p class="chat-video-state" id="chatVideoState"></p></div></div></section></section>
         <aside class="card result-side">
           <div><small>已确认的传播文案</small><pre id="publishCopy"></pre><button class="text-button" id="copyResultHookBtn" type="button">复制文案</button></div>
           <div class="audio-box"><small>配乐</small><strong id="musicPreset"></strong><button id="bgmPlayBtn" class="button ghost" type="button" hidden>试听配乐</button><p id="audioState"></p></div>
@@ -129,8 +129,7 @@
   <dialog id="deleteDialog"><h2>删除这篇作品？</h2><p>正文、分析结果、生成图片、配乐和发布包都将删除。已经下载到本机的文件不会受到影响。</p><div><button class="button ghost" data-close-dialog="deleteDialog" type="button">保留作品</button><button class="button danger" id="confirmDeleteBtn" type="button">确认删除</button></div></dialog>
   <dialog id="serviceDialog"><h2>服务详情</h2><p id="serviceDetailsText"></p><div><button class="button primary" data-close-dialog="serviceDialog" type="button">知道了</button></div></dialog>
   <dialog id="issueDialog"><h2 id="issueDialogTitle">这页有什么问题？</h2><label>问题类型<select id="issueTypeInput"><option>人物不一致</option><option>动作或情节不准确</option><option>场景不符合原作</option><option>文字遮挡或难以阅读</option><option>画面存在异常</option><option>其他问题</option></select></label><label>补充说明<textarea id="issueNoteInput" placeholder="请指出需要保留和需要修正的内容，例如“保留人物服装，只修正手中的物品”。"></textarea></label><p id="issueConfirmText"></p><div><button class="button ghost" data-close-dialog="issueDialog" type="button">取消</button><button class="button primary" id="regenerateAssetBtn" type="button">重新生成</button></div></dialog>
-  <dialog class="chat-studio-dialog" id="chatStudioDialog"><div class="chat-studio-head"><div><small>独立素材 · 不属于传播钩子</small><h2>精华对话</h2><p id="chatStudioSummary"></p></div><button class="button ghost" data-close-dialog="chatStudioDialog" type="button">关闭</button></div><div class="chat-studio-body"><canvas id="chatCanvas" width="1080" height="1920" aria-label="手机聊天记录预览"></canvas><aside><b>两种导出方式</b><p>聊天截图与短视频使用同一段原作精华对话。视频约 15 秒，消息会逐条出现并自动向上滚动。</p><button class="button primary full" id="downloadChatImageBtn" type="button">下载聊天截图 PNG</button><button class="button ghost full" id="buildChatVideoBtn" type="button">生成 15 秒聊天视频</button><video id="chatVideoPreview" controls playsinline hidden></video><a class="button primary full" id="downloadChatVideoLink" href="#" download hidden>下载聊天视频 WebM</a><p class="chat-video-state" id="chatVideoState">表情包为可选点缀，当前不会强制使用。</p></aside></div></dialog>
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=48"></script>
+  <script type="module" src="./app.js?v=49"></script>
 </body>
 </html>
