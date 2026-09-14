@@ -58,7 +58,6 @@ let simulatedFailure = "";
 let analysisTimer = null;
 let analysisStartedAt = 0;
 let videoObjectUrl = "";
-let chatVideoObjectUrl = "";
 let assetObjectUrls = [];
 let resultRefreshPending = false;
 
@@ -332,74 +331,9 @@ function renderHooks() {
     return `<article class="hook-card${selected ? " is-selected" : ""}"><header><span class="hook-type">${escapeHtml(TYPE_LABELS[candidate.hook_type] || "传播角度")}</span><small>${selected ? "✓ 当前选择" : `方案 ${index+1}`}</small></header><pre>${escapeHtml(candidate.rendered_text)}</pre><p>${escapeHtml(candidate.recommendation_reason)}</p><strong>${candidate.recommended_material === "comic" ? "适合连续漫画" : "适合单图故事卡"}</strong><details><summary>查看原文依据</summary>${quotes.length?`<ul>${quotes.map(quote=>`<li>${escapeHtml(quote)}</li>`).join("")}</ul>`:"<p>暂时无法定位这句话的原文依据。请编辑或选择其他版本。</p>"}</details><button class="button ${selected?"ghost":"primary"} full" data-candidate="${escapeAttr(candidate.candidate_id)}" type="button">${selected?"已选择":"选择这版"}</button></article>`;
   }).join("");
   $$('[data-candidate]').forEach(button => button.onclick = () => selectCandidate(button.dataset.candidate));
-  renderHighlightDialogue();
   $("#hookEditor").value = state.hookDraft || "";
   updateHookLength();
   renderValidation();
-}
-
-function renderHighlightDialogue(){
-  const card=$("#highlightDialogueCard"),dialogue=state.analysis?.highlight_dialogue;
-  if(!card)return;
-  card.hidden=!dialogue;
-  if(!dialogue)return;
-  const sides=new Map((dialogue.participants||[]).map(item=>[item.id,item.side]));
-  const preview=(dialogue.messages||[]).slice(0,4).map(message=>`<span class="${sides.get(message.speaker_id)==="right"?"is-right":""}">${escapeHtml(message.text)}</span>`).join("");
-  card.innerHTML=`<div><header><span>新增素材</span><b>精华对话</b></header><h2>${escapeHtml(dialogue.title||"精华对话")}</h2><p>${escapeHtml(dialogue.scene_summary||"从原作提取的高张力对话，可独立导出。")}</p><div class="dialogue-actions"><button class="button primary" data-chat-output="image" type="button">制作聊天截图</button><button class="button ghost" data-chat-output="video" type="button">制作 15 秒视频</button></div></div><div class="chat-mini"><small>${escapeHtml((dialogue.participants||[]).map(item=>item.display_name).join(" · "))}</small>${preview}</div>`;
-  $$('[data-chat-output]',card).forEach(button=>button.onclick=()=>openChatStudio(button.dataset.chatOutput));
-}
-
-function chatLayout(ctx,dialogue,visibleFloat){
-  const width=1080,height=1920,header=188,footer=112,participants=new Map((dialogue.participants||[]).map(item=>[item.id,item]));
-  ctx.font='38px "Microsoft YaHei"';
-  const entries=(dialogue.messages||[]).slice(0,Math.ceil(visibleFloat)).map((message,index)=>{
-    const person=participants.get(message.speaker_id)||{display_name:"角色",side:index%2?"right":"left"},lines=canvasTextLines(ctx,message.text,610),bubbleWidth=Math.min(700,Math.max(170,...lines.map(line=>ctx.measureText(line).width+72))),bubbleHeight=lines.length*55+42;
-    return {message,person,lines,bubbleWidth,bubbleHeight,index,height:bubbleHeight+54};
-  });
-  const total=entries.reduce((sum,item)=>sum+item.height,0),viewportTop=270,viewportBottom=height-footer-38,offsetY=Math.min(0,viewportBottom-(viewportTop+total));
-  let y=viewportTop+offsetY;
-  return {entries:entries.map(item=>({...item,y:(y+=item.height)-item.height})),participants,header,footer};
-}
-
-function drawChatCanvas(canvas,dialogue,visibleFloat=(dialogue?.messages||[]).length){
-  const ctx=canvas.getContext("2d"),width=canvas.width,height=canvas.height;
-  ctx.clearRect(0,0,width,height);ctx.fillStyle="#c7dce8";ctx.fillRect(0,0,width,height);
-  const gradient=ctx.createLinearGradient(0,0,0,height);gradient.addColorStop(0,"rgba(255,255,255,.28)");gradient.addColorStop(1,"rgba(71,112,136,.08)");ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
-  ctx.fillStyle="rgba(249,252,253,.96)";ctx.fillRect(0,0,width,188);ctx.fillStyle="#17212a";ctx.textAlign="center";ctx.textBaseline="middle";ctx.font='700 46px "Microsoft YaHei"';ctx.fillText(dialogue?.title||"精华对话",width/2,104,720);ctx.font='26px "Microsoft YaHei"';ctx.fillStyle="#6b7d88";ctx.fillText("‹",64,104);ctx.fillText("⋯",1012,104);
-  roundedPath(ctx,392,210,296,50,25);ctx.fillStyle="rgba(89,116,132,.25)";ctx.fill();ctx.fillStyle="#f8fbfc";ctx.font='24px "Microsoft YaHei"';ctx.fillText("今天  ·  精华片段",540,235);
-  const layout=chatLayout(ctx,dialogue,visibleFloat),fraction=Math.max(0,Math.min(1,visibleFloat-Math.floor(visibleFloat)));
-  layout.entries.forEach((item,index)=>{
-    const isLast=index===layout.entries.length-1&&visibleFloat<layout.entries.length,alpha=isLast?fraction:1;if(alpha<=0)return;
-    const right=item.person.side==="right",avatarX=right?990:90,bubbleX=right?width-145-item.bubbleWidth:145,bubbleY=item.y+28+(1-alpha)*24;
-    ctx.save();ctx.globalAlpha=alpha;ctx.beginPath();ctx.arc(avatarX,item.y+66,42,0,Math.PI*2);ctx.fillStyle=right?"#f5c927":"#4e9db4";ctx.fill();ctx.fillStyle=right?"#4b3b00":"#fff";ctx.textAlign="center";ctx.font='700 28px "Microsoft YaHei"';ctx.fillText([...String(item.person.display_name||"角")][0],avatarX,item.y+67);
-    ctx.textAlign=right?"right":"left";ctx.font='24px "Microsoft YaHei"';ctx.fillStyle="#667b88";ctx.fillText(item.person.display_name,right?width-145:145,item.y+5);
-    roundedPath(ctx,bubbleX,bubbleY,item.bubbleWidth,item.bubbleHeight,24);ctx.fillStyle=right?"#ffdc35":"#ffffff";ctx.fill();ctx.fillStyle="#17212a";ctx.textAlign="left";ctx.textBaseline="top";ctx.font='38px "Microsoft YaHei"';item.lines.forEach((line,lineIndex)=>ctx.fillText(line,bubbleX+36,bubbleY+24+lineIndex*55));ctx.restore();
-  });
-  ctx.fillStyle="rgba(248,251,252,.96)";ctx.fillRect(0,height-112,width,112);ctx.fillStyle="#82929b";ctx.textAlign="left";ctx.textBaseline="middle";ctx.font='25px "Microsoft YaHei"';ctx.fillText(`《${state.project.title||"故事"}》 · ${state.project.author||"作者"} · 知乎阅读原作`,44,height-56,990);
-}
-
-function openChatStudio(mode="image"){
-  const dialogue=state.analysis?.highlight_dialogue;if(!dialogue)return toast("精华对话尚未生成");
-  $("#chatStudioSummary").textContent=dialogue.scene_summary||"从原作提取的高张力对话";drawChatCanvas($("#chatCanvas"),dialogue);$("#chatStudioDialog").showModal();
-  if(mode==="video")$("#buildChatVideoBtn").focus();else $("#downloadChatImageBtn").focus();
-}
-
-function downloadChatImage(){
-  const canvas=$("#chatCanvas"),dialogue=state.analysis?.highlight_dialogue;if(!dialogue)return;
-  drawChatCanvas(canvas,dialogue);canvas.toBlob(blob=>blob&&downloadBlob(blob,`${safeName(state.project.title)}-精华对话.png`),"image/png");
-}
-
-async function buildChatVideo(){
-  const dialogue=state.analysis?.highlight_dialogue,canvas=$("#chatCanvas");if(!dialogue)return;
-  if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream)return toast("当前浏览器不支持视频合成，请使用最新版 Chrome 或 Edge");
-  const button=$("#buildChatVideoBtn"),duration=15000,stream=canvas.captureStream(24),mime=["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"].find(type=>MediaRecorder.isTypeSupported(type))||"",recorder=new MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:4500000}:undefined),chunks=[];
-  setBusy(button,true,"正在生成 0%");$("#chatVideoState").textContent="正在实时合成 15 秒视频，请保持页面打开。";recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);};
-  try{
-    const finished=new Promise((resolve,reject)=>{recorder.onstop=resolve;recorder.onerror=()=>reject(recorder.error||new Error("视频编码失败"));});recorder.start(1000);const started=performance.now(),count=dialogue.messages.length;
-    await new Promise(resolve=>{const frame=now=>{const elapsed=Math.min(duration,now-started),lead=.45,visible=Math.max(0,Math.min(count,(elapsed/duration*count)+lead));drawChatCanvas(canvas,dialogue,visible);button.textContent=`正在生成 ${Math.round(elapsed/duration*100)}%`;if(elapsed<duration)requestAnimationFrame(frame);else resolve();};requestAnimationFrame(frame);});
-    recorder.stop();await finished;stream.getTracks().forEach(track=>track.stop());const blob=new Blob(chunks,{type:mime||"video/webm"});if(!blob.size)throw new Error("视频文件为空");if(chatVideoObjectUrl)URL.revokeObjectURL(chatVideoObjectUrl);chatVideoObjectUrl=URL.createObjectURL(blob);
-    const video=$("#chatVideoPreview"),link=$("#downloadChatVideoLink");video.src=chatVideoObjectUrl;video.hidden=false;link.href=chatVideoObjectUrl;link.download=`${safeName(state.project.title)}-精华对话-15秒.webm`;link.hidden=false;$("#chatVideoState").textContent="15 秒聊天视频已生成：消息逐条出现，并在超出屏幕时自动上移。";
-  }catch(error){toast(`聊天视频生成失败：${error.message}`);$("#chatVideoState").textContent="视频没有生成成功，请重试。";}finally{setBusy(button,false);button.textContent="重新生成 15 秒聊天视频";}
 }
 
 function selectCandidate(id) {
@@ -907,8 +841,6 @@ function bindEvents() {
   $("#deleteProjectBtn").onclick=()=>$("#deleteDialog").showModal();
   $("#confirmDeleteBtn").onclick=deleteCurrentProject;
   $("#regenerateAssetBtn").onclick=regenerateAsset;
-  $("#downloadChatImageBtn").onclick=downloadChatImage;
-  $("#buildChatVideoBtn").onclick=buildChatVideo;
   $$('[data-close-dialog]').forEach(button=>button.onclick=()=>$("#"+button.dataset.closeDialog).close());
   $$('[data-action="go-input"]').forEach(button => button.onclick = event => { event.preventDefault(); showPage("input"); });
   $$('[data-action="back-hooks"]').forEach(button => button.onclick = () => $("#backHookDialog").showModal());

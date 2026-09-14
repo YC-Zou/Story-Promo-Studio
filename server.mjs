@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
-const host = process.env.HOST || "0.0.0.0";
 const appMode = process.env.APP_MODE || (process.env.NODE_ENV === "test" ? "test" : (process.env.OPENAI_API_KEY || process.env.OPENAI_NEXT_API_KEY) ? "live" : "demo");
 if (!["demo", "live", "test"].includes(appMode)) throw new Error("APP_MODE 必须是 demo、live 或 test");
 const isTestMode = appMode === "test";
@@ -335,23 +334,6 @@ function validateModelResult(result) {
     if(Number(s.factual_accuracy)<8||Number(s.spoiler_control)<8)issues.push(`${candidate.candidate_id} 未达到事实或剧透硬门槛`);
     candidate.rank_score = round(2*s.factual_accuracy + 2*s.unique_point_coverage + 1.5*s.tone_match + 1.2*s.cold_reader_clarity + s.visual_specificity + s.curiosity + s.spoiler_control + .8*s.natural_language);
   }
-  const dialogue=result.highlight_dialogue;
-  if(!dialogue||!Array.isArray(dialogue.participants)||dialogue.participants.length!==2||!Array.isArray(dialogue.messages)||dialogue.messages.length<5||dialogue.messages.length>8){
-    issues.push("highlight_dialogue 必须包含两位参与者和 5—8 条消息");
-  }else{
-    const participantIds=new Set(dialogue.participants.map(item=>item.id));
-    const sides=new Set(dialogue.participants.map(item=>item.side));
-    if(participantIds.size!==2||!sides.has("left")||!sides.has("right")||dialogue.participants.some(item=>!String(item.display_name||"").trim()))issues.push("highlight_dialogue 的参与者或左右位置非法");
-    const speaking=new Set();
-    dialogue.messages.forEach((message,index)=>{
-      message.message_id=`M${index+1}`;message.type="text";message.text=String(message.text||"").replace(/^[「『“\"]+|[」』”\"]+$/g,"").trim();
-      if(!participantIds.has(message.speaker_id)||nonWhitespaceLength(message.text)<2||nonWhitespaceLength(message.text)>34||!message.source_refs?.length||!message.source_refs.every(ref=>evidenceIds.has(ref))||!["verbatim","lightly_adapted"].includes(message.adaptation))issues.push(`highlight_dialogue 第 ${index+1} 条消息非法`);
-      speaking.add(message.speaker_id);message.sticker_hint=String(message.sticker_hint||"").slice(0,12);
-    });
-    if(speaking.size!==2)issues.push("highlight_dialogue 必须让两位参与者都发言");
-    dialogue.source_refs=[...new Set(dialogue.messages.flatMap(message=>message.source_refs||[]))];
-    dialogue.spoiler_risk="low";dialogue.target_duration_seconds=15;
-  }
   if (issues.length) throw error("模型结构校验失败", 502, issues);
   const best = result.candidates.find(item => item.candidate_id === result.best_candidate_id) || [...result.candidates].sort((a,b)=>b.rank_score-a.rank_score)[0];
   result.best_candidate_id = best.candidate_id; result.best_hook = { ...(result.best_hook || {}), text: best.rendered_text };
@@ -370,8 +352,8 @@ async function analyzeProject(input) {
   } else {
     if (!textApiKey) throw error("文字生成功能暂不可用，请稍后重试。", 503);
     const template = await readFile(resolve(root, "docs", "product", "prompts", "hook-generation-v1.md"), "utf8");
-    const initialResult=await callChat(`${renderPrompt(template,input)}\n\n服务端强制要求：candidate_plan 与 candidates 必须各有且只有 3 项，三个 hook_type 和三个 strategy 分别互不重复；highlight_dialogue 是同一次响应中的独立对象，不得作为第四个候选。一次性完成全部候选和精华对话，不执行后续模型复审或重写。`);
-    if(initialResult?.candidate_plan?.length!==3||initialResult?.candidates?.length!==3||!initialResult?.highlight_dialogue)throw error("没有成功准备三版传播文案和精华对话，请重新生成。",502);
+    const initialResult=await callChat(`${renderPrompt(template,input)}\n\n服务端强制要求：candidate_plan 与 candidates 必须各有且只有 3 项，三个 hook_type 和三个 strategy 分别互不重复。一次性完成全部候选，不执行后续模型复审或重写。`);
+    if(initialResult?.candidate_plan?.length!==3||initialResult?.candidates?.length!==3)throw error("没有成功准备三版传播文案，请重新生成。",502);
     modelResult=validateModelResult(initialResult);
   }
   const id = randomUUID(), category = inferCategory(input.title, input.labels, input.body);
@@ -390,30 +372,7 @@ function makeDemoAnalysis(input) {
     return {candidate_id:`C${index+1}`,hook_type,strategy:strategies[index],ending_type:"reveal",covers_unique_selling_point:true,lines,rendered_text:renderLines(lines),recommendation_reason:["从人物关系切入，冲突清楚","先交代异常设定，悬念集中","停在关键行动前，适合继续阅读"][index],recommended_material:index===1?"card":"comic",scores:{factual_accuracy:9,unique_point_coverage:8.5,cold_reader_clarity:8.5,tone_match:8.5,visual_specificity:8.5,curiosity:8.5,spoiler_control:9,natural_language:8.5},rank_score:85-index};
   });
   const allTypes=["relationship_tension","abnormal_setting","identity_contrast","crisis_choice","emotional_scene"];
-  const body=String(input.body),speechVerb=/(?:说|问|答|喊|叫|骂|笑|道|念叨|追问|大叫)[：:]?\s*$/u;
-  const quoted=[...body.matchAll(/[「“]([^」”\r\n]{2,34})[」”]/gu)].map(match=>{
-    const prefix=body.slice(Math.max(0,match.index-70),match.index).split(/[。！？!?\n]/u).at(-1)||"";
-    if(!speechVerb.test(prefix))return null;
-    return {text:match[1].trim(),speaker:/我[^。！？!?\n]{0,28}(?:说|问|答|喊|叫|念叨|追问|大叫)/u.test(prefix)?"我":"对方",index:match.index};
-  }).filter(Boolean);
-  let chosen=[],bestScore=-Infinity;
-  for(const size of [5])for(let start=0;start+size<=quoted.length;start++){
-    const window=quoted.slice(start,start+size),speakers=new Set(window.map(item=>item.speaker));if(speakers.size<2)continue;
-    const transitions=window.slice(1).filter((item,index)=>item.speaker!==window[index].speaker).length,span=window.at(-1).index-window[0].index,score=transitions*40-span/8;
-    if(score>bestScore){bestScore=score;chosen=window;}
-  }
-  if(!chosen.length)chosen=quoted.slice(0,Math.min(8,quoted.length));
-  while(chosen.length<5)chosen.push({text:evidence_pool[chosen.length%evidence_pool.length].quote,speaker:chosen.length%2?"我":"对方"});
-  const speakerNames=["对方","我"];
-  const participants=[{id:"p1",display_name:speakerNames[0],side:"left"},{id:"p2",display_name:speakerNames[1],side:"right"}];
-  const messages=chosen.slice(0,8).map((item,index)=>{
-    let evidence=evidence_pool.find(row=>row.quote.includes(item.text.slice(0,10))||item.text.includes(row.quote.slice(0,10)));
-    if(!evidence){evidence={ref_id:`E${String(evidence_pool.length+1).padStart(2,"0")}`,quote:[...item.text].slice(0,25).join("")};evidence_pool.push(evidence);}
-    const detectedIndex=speakerNames.indexOf(item.speaker),speakerIndex=detectedIndex>=0?detectedIndex:index%2;
-    return {message_id:`M${index+1}`,speaker_id:`p${speakerIndex+1}`,type:"text",text:item.text.slice(0,34),source_refs:[evidence.ref_id],adaptation:"verbatim",sticker_hint:""};
-  });
-  const highlight_dialogue={title:"精华对话",scene_summary:"故事中关系与冲突最集中的一段对话",participants,messages,source_refs:[...new Set(messages.flatMap(item=>item.source_refs))],spoiler_risk:"low",target_duration_seconds:15};
-  return {story_profile:{visual_anchors:evidence_pool.slice(0,4).map(item=>item.quote)},content_analysis:{unique_selling_point:"授权样例中的核心冲突",spoiler_boundary:"不提前揭示故事结局",evidence_pool,tone_profile:"suspense_dark",tone_profile_label:"悬念"},hook_type_scores:allTypes.map(hook_type=>({hook_type,type_fit_score:8,material_strength:8,type_selection_score:8})),candidate_plan:candidates.map(({candidate_id,hook_type,strategy})=>({candidate_id,hook_type,strategy})),candidates,highlight_dialogue,best_candidate_id:"C1",best_hook:{text:candidates[0].rendered_text}};
+  return {story_profile:{visual_anchors:evidence_pool.slice(0,4).map(item=>item.quote)},content_analysis:{unique_selling_point:"授权样例中的核心冲突",spoiler_boundary:"不提前揭示故事结局",evidence_pool,tone_profile:"suspense_dark",tone_profile_label:"悬念"},hook_type_scores:allTypes.map(hook_type=>({hook_type,type_fit_score:8,material_strength:8,type_selection_score:8})),candidate_plan:candidates.map(({candidate_id,hook_type,strategy})=>({candidate_id,hook_type,strategy})),candidates,best_candidate_id:"C1",best_hook:{text:candidates[0].rendered_text}};
 }
 
 function overlapScore(text, body) {
@@ -691,7 +650,7 @@ function publicTask(task) {
 }
 function publicProject(project){
   const analysis=project.analysis||{},content=analysis.content_analysis||{};
-  return {analysis:{story_profile:{project_id:analysis.story_profile?.project_id,primary_category:analysis.story_profile?.primary_category},content_analysis:{evidence_pool:(content.evidence_pool||[]).map(item=>({ref_id:item.ref_id,quote:item.quote}))},candidates:(analysis.candidates||[]).map(item=>({candidate_id:item.candidate_id,hook_type:item.hook_type,rendered_text:item.rendered_text,recommendation_reason:item.recommendation_reason,recommended_material:item.recommended_material,lines:item.lines?.map(line=>({type:line.type,text:line.text,source_refs:line.source_refs}))})),highlight_dialogue:analysis.highlight_dialogue,best_candidate_id:analysis.best_candidate_id},selected_hook_profile:project.selectedHook,recommendation:project.selectedHook?recommendationFor(project.selectedHook.final_text,project.selectedHook.hook_type):null,expires_at:project.expires_at};
+  return {analysis:{story_profile:{project_id:analysis.story_profile?.project_id,primary_category:analysis.story_profile?.primary_category},content_analysis:{evidence_pool:(content.evidence_pool||[]).map(item=>({ref_id:item.ref_id,quote:item.quote}))},candidates:(analysis.candidates||[]).map(item=>({candidate_id:item.candidate_id,hook_type:item.hook_type,rendered_text:item.rendered_text,recommendation_reason:item.recommendation_reason,recommended_material:item.recommended_material,lines:item.lines?.map(line=>({type:line.type,text:line.text,source_refs:line.source_refs}))})),best_candidate_id:analysis.best_candidate_id},selected_hook_profile:project.selectedHook,recommendation:project.selectedHook?recommendationFor(project.selectedHook.final_text,project.selectedHook.hook_type):null,expires_at:project.expires_at};
 }
 function imageContentType(buffer){return buffer?.[0]===0x89&&buffer?.[1]===0x50?"image/png":buffer?.[0]===0xff&&buffer?.[1]===0xd8?"image/jpeg":"application/octet-stream";}
 
@@ -825,4 +784,4 @@ const httpServer=createServer(async (req, res) => {
 });
 httpServer.requestTimeout=20*60*1000;
 httpServer.headersTimeout=20*60*1000+5000;
-httpServer.listen(port,host,()=>{console.log(`Zhihu Story Workbench: http://${host}:${port}`);console.log(`Mode: ${appMode}; data retention: ${retentionMs/3_600_000} hours`);});
+httpServer.listen(port,"127.0.0.1",()=>{console.log(`Zhihu Story Workbench: http://127.0.0.1:${port}`);console.log(`Mode: ${appMode}; data retention: ${retentionMs/3_600_000} hours`);});
