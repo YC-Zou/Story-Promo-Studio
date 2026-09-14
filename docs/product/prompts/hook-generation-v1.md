@@ -195,31 +195,7 @@ rank_score = 2.0*factual_accuracy + 2.0*unique_point_coverage + 1.5*tone_match +
 
 best_hook.text 必须按以上规则由最佳候选 lines 渲染。用户界面会同时展示三条候选，best_candidate_id 只用于默认突出显示，不代表替用户自动选择。
 
-八、额外生成精华对话
-
-在同一次响应中额外返回一份 `highlight_dialogue`。它是独立的手机聊天脚本，不是第四条传播钩子，不进入 `candidate_plan`、`candidates`、评分、排序或 `best_candidate_id`，也不得改变三条传播钩子的任何规则。
-
-先扫描全文，建立 3—6 个“连续对话片段”候选。片段边界以同一时间、地点、聊天窗口或持续冲突为准，不能把不同章节、不同场景的台词拼在一起。对每个片段按以下维度内部比较，但不要输出评分过程：
-
-1. `relationship_density`：几句话内是否能看懂人物关系、立场或权力差；
-2. `turning_point`：是否出现身份反差、误会升级、危险逼近、情绪翻转或关键选择；
-3. `dialogue_naturalness`：原台词是否天然像聊天，而非依赖大量旁白才能成立；
-4. `cold_reader_clarity`：没读过原作的人是否能迅速理解“谁在跟谁说什么”；
-5. `visual_rhythm`：长短句是否有变化，能否形成消息逐条出现的节奏；
-6. `spoiler_control`：是否停在最想继续看的位置，而没有给出最终答案或结局。
-
-选择综合表现最强的一段，而不是机械选择对白最多、最靠前或与传播钩子相同的片段。理想结构是“建立关系或情境 → 冲突升级 → 出现反差/危险/误会 → 停在悬念或情绪峰值”。优先保留原作台词；只允许为手机聊天的连贯性做轻微删减或代词补全，不得新增人物关系、事实、结果或结局。
-- 先判断 `chat_type`：原文明示多人聊天群时必须为 `group`，普通对话或私聊为 `direct`。`chat_title` 必须使用原文中的群名、群聊称呼或对方姓名；正文没有正式群名时可使用“朋友群聊”等中性称呼，禁止臆造群名。
-- direct 使用 2 位参与者；group 使用实际发言的 2—6 位参与者。`display_name` 必须保留原文中的姓名、群昵称或备注，包括空格和英文后缀，不得统一改成“对方”。`is_self` 仅在能明确识别第一人称发言者时为 true。
-- 输出 5—10 个时间顺序项目，并停在关键答案或结局揭晓之前。人物发言使用 `text`；原文中穿插的关键动作、状态或内心 OS 使用 `overlay`，它居中显示且 `speaker_id` 必须为 null，不能伪装成人物消息。
-- text 不包含说话人前缀，优先逐字引用；overlay 允许把原作叙述压缩成一句第一人称即时反应。每项 2—42 个非空白字符，轻微改写时标记 `lightly_adapted`。
-- overlay 只保留“不显示就会误解下一句”的动作、身体状态或内心反应，通常 0—2 条。它不能代替普通旁白，也不能凭空创造网络聊天中不存在的现场动作。
-- 同一人物在正文中的群昵称、私聊备注与本名必须按当前聊天场景原样保留。例如群里写昵称就保留昵称，不能擅自换成本名；不同昵称不能合并为一个“对方”。
-- 每条消息必须带至少一个存在于 `evidence_pool` 的 `source_refs`。`source_refs` 应支持该消息中的具体事实或原台词。
-- `target_duration_seconds` 由服务端按项目数、每条文字长度和 overlay 数量重算，范围 10—25 秒。模型先给合理估算，但不得为了凑时长删减关键信息。
-- 表情包不是必选项。本阶段只输出文本消息，可用 `sticker_hint` 给出可选情绪关键词；没有必要时填空字符串。
-
-九、输出
+八、输出
 
 只输出一个合法 JSON 对象，不要 Markdown 或代码围栏。字符串换行写成 \n，不得使用未转义反斜杠。
 
@@ -292,30 +268,6 @@ best_hook.text 必须按以上规则由最佳候选 lines 渲染。用户界面�
       "rank_score": 0
     }
   ],
-  "highlight_dialogue": {
-    "title": "精华对话",
-    "chat_type": "direct",
-    "chat_title": "原文中的对方姓名或群名",
-    "scene_summary": "不剧透地概括这段对话发生的场景",
-    "participants": [
-      { "id": "p1", "display_name": "原文姓名或群昵称", "side": "left", "is_self": false },
-      { "id": "p2", "display_name": "我", "side": "right", "is_self": true }
-    ],
-    "messages": [
-      {
-        "message_id": "M1",
-        "speaker_id": "p1 或 null",
-        "type": "text",
-        "text": "来自正文的精华台词",
-        "source_refs": ["E2"],
-        "adaptation": "verbatim",
-        "sticker_hint": ""
-      }
-    ],
-    "source_refs": ["E2"],
-    "spoiler_risk": "low",
-    "target_duration_seconds": 18
-  },
   "best_candidate_id": "C1",
   "best_hook": {
     "text": "严格按最佳候选 lines 渲染后的文本",
@@ -337,5 +289,4 @@ best_hook.text 必须按以上规则由最佳候选 lines 渲染。用户界面�
 5. 校验每条 line 的长度、类型、禁用标点及 `source_refs`；
 6. 校验引用存在于 `evidence_pool`；
 7. 根据 `lines` 重新渲染候选文本和 `best_hook.text`；
-8. 校验 `highlight_dialogue` 独立存在、聊天类型与标题合法、参与者 2—6 位、5—10 个消息/状态项目、昵称、说话人和证据引用合法；
-9. 单条失败时调用定向重写接口，只返回一个候选，不重新运行完整 Prompt。
+8. 单条失败时调用定向重写接口，只返回一个候选，不重新运行完整 Prompt。
