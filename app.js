@@ -166,7 +166,7 @@ async function checkHealth() {
     health = await api("/api/health");
     const el = $("#serviceState");
     el.className = `service-state ${health.mode === "demo" || health.mode === "test" ? "is-demo" : "is-live"}`;
-    const textState=health.mode === "demo" || health.mode === "test" ? "演示模式" : health.services?.text === "available" && health.services?.image === "available" ? "生成功能可用" : health.services?.text !== "available" ? "文字生成暂不可用" : "图片生成暂不可用";
+    const textState=health.mode === "demo" || health.mode === "test" ? "演示模式" : !health.services ? "暂时无法确认服务状态" : health.services.text === "available" && health.services.image === "available" ? "生成服务已配置" : health.services.text !== "available" ? "文字生成暂不可用" : "图片生成暂不可用";
     const music=health.services?.music === "available" ? "" : " · 配乐暂不可用，不影响图片生成";
     el.querySelector("span").textContent = `${textState}${music}`;
     $("#serviceDetailsText").textContent=`当前为${health.mode === "demo" || health.mode === "test" ? "演示模式，仅使用固定授权样例和已审核输出" : "真实生成模式"}。正文和生成文件默认保存 ${health.retention_hours || 24} 小时。`;
@@ -237,7 +237,8 @@ function showPage(page, persist = true) {
     button.disabled = !canVisit(button.dataset.step);
   });
   if (persist) saveState();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  window.dispatchEvent(new CustomEvent("story-state",{detail:{page,task:state.task}}));
 }
 
 function canVisit(page) {
@@ -295,15 +296,16 @@ async function analyze() {
     state.task = null;
     clearInterval(analysisTimer);
     $("#analysisBar").style.width = "100%";
-    $("#analysisPercent").textContent = "100%";
+    $("#analysisPercent").textContent = "文案已生成";
     $("#analysisPhase").textContent = "传播文案已准备好，正在打开…";
     saveState();
     renderHooks();
     await new Promise(resolve => setTimeout(resolve, 450));
     showPage("hooks");
+    window.dispatchEvent(new CustomEvent("story-complete",{detail:{key:state.project.id,type:"hook-done"}}));
     toast(`已准备 ${result.candidates.length} 个传播角度`);
   } catch (error) {
-    $("#inputError").textContent = error.status===429?"当前生成请求较多，请稍后重试。正文仍保留在本页。":error instanceof TypeError?"正文没有提交成功。内容仍保留在本页，请检查网络后重试。":error.message;
+    $("#inputError").textContent = error.status===429?"当前生成请求较多，请稍后重试。正文仍保留在本页。":error instanceof TypeError?"未能获取生成结果。当前页面中的正文仍保留，请检查网络后重试。":error.message;
     showPage("input");
   } finally { clearInterval(analysisTimer); setBusy(button, false); }
 }
@@ -315,8 +317,8 @@ function updateAnalysisProgress() {
     const percent = Math.min(94, Math.round(8 + 86 * (1 - Math.exp(-seconds / 58))));
     const phases = percent < 30 ? "正在阅读故事正文…" : percent < 60 ? "正在梳理人物与情节…" : "正在准备三种传播角度…";
     $("#analysisBar").style.width = `${percent}%`;
-    $("#analysisPercent").textContent = `${percent}%`;
-    $("#analysisPhase").textContent = phases;
+    $("#analysisPercent").textContent = "生成中";
+    $("#analysisPhase").textContent = "正在理解故事并准备传播文案";
   };
   tick(); analysisTimer = setInterval(tick, 800);
 }
@@ -359,7 +361,7 @@ function renderValidation(result = null) {
     panel.innerHTML = `<b>检查通过，可以继续制作宣传素材。</b>`;
   } else if (result?.issues?.length) {
     panel.classList.add("is-invalid");
-    panel.innerHTML = `<b>这版文案还不能使用</b><br>${result.issues.map(item => `“${escapeHtml(item.sentence)}”${item.code === "spoiler" ? "提前揭示了故事保留的答案或结局。请把文案停在悬念揭晓前。" : `与正文中的人物、事件或因果不一致。${escapeHtml(item.message||"")} 请修改后重试。`}`).join("<br>")}`;
+    panel.innerHTML = `<b>这版文案需要调整</b><br>${result.issues.map(item => `“${escapeHtml(item.sentence)}”${item.code === "spoiler" ? "提前揭示了故事保留的答案或结局。请把文案停在悬念揭晓前。" : `与正文中的人物、事件或因果不一致。${escapeHtml(item.message||"")} 请修改后重试。`}`).join("<br>")}`;
   } else {
     panel.innerHTML = `<span>${state.hookDirty ? "修改后需要重新进行内容检查。" : "等待检查"}</span>`;
   }
@@ -373,7 +375,7 @@ async function confirmHook() {
   const count = countChars(text);
   if (count < 20 || count > 300) return renderValidation({ issues: [{ sentence: "传播文案", message: `需要 20—300 个非空白字符，当前 ${count} 个` }] });
   const button = $("#confirmHookBtn");
-  setBusy(button, true, "正在检查事实和剧透风险…");
+  setBusy(button, true, "正在检查文案与原作是否一致…");
   try {
     const result = await api(`/api/projects/${encodeURIComponent(state.project.id)}/select-hook`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -435,7 +437,7 @@ function renderBackgrounds() {
   $("#posterDraftPreview").hidden = !saved;
   if (saved) { $("#posterDraftImage").src = state.posterDesign.previewDataUrl; $("#posterDraftStyle").textContent = state.posterDesign.styleName || "单图故事卡定稿"; }
   $("#startCardBtn").disabled = !state.backgroundId;
-  $("#startCardBtn").textContent = saved ? "查看生成预案" : "下一步：编辑单图故事卡";
+  $("#startCardBtn").textContent = saved ? "查看生成设置" : "下一步：编辑单图故事卡";
   $("#backgroundHint").textContent = saved ? "排版已保存，可以生成" : state.backgroundId ? "底图已选择，请继续编辑排版" : "请选择一张底图";
   $$('[data-bg-filter]').forEach(button => button.classList.toggle("is-active", button.dataset.bgFilter === state.backgroundFilter));
 }
@@ -458,10 +460,10 @@ function openPosterEditor() {
 function showPreflight(type=state.materialType){
   state.materialType=type;
   const isComic=type==="comic",lineCount=state.selectedHook?.selected_lines?.length||4,pageCount=Math.min(8,Math.max(2,Math.ceil(lineCount/4)));
-  $("#preflightTitle").textContent=isComic?"连续漫画生成预案":"单图故事卡生成预案";
+  $("#preflightTitle").textContent=isComic?"连续漫画生成前确认":"单图故事卡生成前确认";
   const background=state.backgrounds.find(item=>item.id===state.backgroundId);
-  const beats=(state.selectedHook?.selected_lines||[]).slice(0,pageCount).map((line,index)=>`<li>第 ${index+1} 页：${escapeHtml(line.text)}</li>`).join("");
-  $("#preflightContent").innerHTML=isComic?`<dl><div><dt>预计页数</dt><dd>${pageCount} 页</dd></div><div><dt>情节节拍</dt><dd><ol>${beats}</ol></dd></div><div><dt>预计等待</dt><dd>${health?.mode==="demo"?"约 5 秒":"约 2–6 分钟"}</dd></div></dl>`:`<dl><div><dt>已选背景</dt><dd>${escapeHtml(background?.name||"已保存背景")}</dd></div><div><dt>画面文案</dt><dd>${escapeHtml((state.posterDesign?.lines||[]).join(" / "))}</dd></div><div><dt>预计等待</dt><dd>${health?.mode==="demo"?"约 5 秒":"约 30–90 秒"}</dd></div></dl>`;
+  const beats=(state.selectedHook?.selected_lines||[]).slice(0,pageCount).map((line,index)=>`<li>${escapeHtml(line.text)}</li>`).join("");
+  $("#preflightContent").innerHTML=isComic?`<dl><div><dt>预计页数</dt><dd>${pageCount} 页</dd></div><div><dt>文案摘要</dt><dd><ol>${beats}</ol></dd></div><div><dt>等待说明</dt><dd>${health?.mode==="demo"||health?.mode==="test"?"演示素材通常会较快完成":"生成需要一些时间，具体取决于服务响应。"}</dd></div></dl>`:`<dl><div><dt>已选背景</dt><dd>${escapeHtml(background?.name||"已保存背景")}</dd></div><div><dt>画面文案</dt><dd>${escapeHtml((state.posterDesign?.lines||[]).join(" / "))}</dd></div><div><dt>等待说明</dt><dd>${health?.mode==="demo"||health?.mode==="test"?"演示素材通常会较快完成":"生成需要一些时间，具体取决于服务响应。"}</dd></div></dl>`;
   if(!/^https:\/\/(?:www\.)?zhihu\.com\//i.test(state.project.sourceUrl||""))$("#preflightContent").insertAdjacentHTML("beforeend",'<p class="preflight-warning">你还没有填写知乎原作链接。可以继续生成预览，但填写链接后才能导出发布素材。</p>');
   $("#preflightMusicInput").checked=Boolean(state.musicEnabled);
   $("#preflightConfirmBtn").textContent=isComic?"开始生成连续漫画":"开始生成单图故事卡";
@@ -517,7 +519,7 @@ function renderTask() {
   const badge = $("#taskStatusBadge");
   badge.textContent = STATUS_LABELS[task.status] || "状态更新中";
   badge.dataset.status = task.status;
-  $("#progressPercent").textContent = `${task.progress}%`;
+  $("#progressPercent").textContent = STATUS_LABELS[task.status] || "生成中";
   $("#progressBar").style.width = `${task.progress}%`;
   $("#progressTitle").textContent = STATUS_LABELS[task.status] || task.status;
   $("#progressMessage").textContent = userTaskMessage(task);
@@ -526,14 +528,15 @@ function renderTask() {
   $("#retryTaskBtn").hidden = !retryable;
   $("#viewResultBtn").hidden = !["succeeded", "partially_failed"].includes(task.status);
   $("#cancelTaskBtn").hidden=!["queued","running"].includes(task.status);
+  window.dispatchEvent(new CustomEvent("story-state",{detail:{page:state.page,task}}));
 }
 
 function userTaskMessage(task){
   if(task.status==="partially_failed")return "图片已经完成，配乐没有生成成功。你可以直接使用图片，或单独重试配乐。";
   if(task.status==="failed")return "生成没有完成。请重试；已完成的内容会保留。";
   if(task.status==="canceled")return "生成已取消。";
-  if(task.status==="succeeded")return "宣传素材已完成，请查看并复核。";
-  return task.status==="queued"?"等待服务开始处理。":"正在处理，请保持页面打开。";
+  if(task.status==="succeeded")return "素材已准备好，请复核后导出。";
+  return task.status==="queued"?"等待服务开始处理。":"正在处理。返回不会取消当前生成任务。";
 }
 function userSubtaskMessage(sub){if(sub.status==="succeeded")return `${sub.label}已完成`;if(sub.status==="failed")return `${sub.label}没有完成，可以重试`;if(sub.status==="canceled")return "已取消";if(sub.status==="running")return `正在${sub.label}`;return "等待开始";}
 
@@ -613,7 +616,7 @@ function prepareAudio(available, serverUrl) {
   audioServerUrl = available && serverUrl ? serverUrl : "";
   button.hidden = !audioServerUrl;
   button.disabled = false;
-  button.textContent = "试听 BGM";
+  button.textContent = "试听配乐";
 }
 
 function resetVideo(enabled) {
@@ -621,18 +624,18 @@ function resetVideo(enabled) {
   const video=$("#videoPreview"), link=$("#videoDownloadLink"), button=$("#buildVideoBtn");
   video.pause(); video.hidden=true; video.removeAttribute("src"); link.hidden=true; link.removeAttribute("href");
   button.disabled=!enabled;
-  $("#videoState").textContent=enabled ? "点击生成后，浏览器会按 BGM 时长实时合成带声音的视频。" : "图片或 BGM 尚未成功，暂时无法合成视频。";
+  $("#videoState").textContent=enabled ? "点击生成后，浏览器会按配乐时长实时合成带声音的视频。" : "图片或配乐尚未成功，暂时无法合成视频。";
 }
 
 async function buildVideoPreview() {
-  if (!audioServerUrl || !state.task?.bundle?.image_assets?.length) return toast("图片与 BGM 均成功后才能生成视频");
+  if (!audioServerUrl || !state.task?.bundle?.image_assets?.length) return toast("图片与配乐均成功后才能生成视频");
   if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return toast("当前浏览器不支持视频合成，请使用最新版 Chrome 或 Edge");
   const button=$("#buildVideoBtn"); setBusy(button,true,"正在实时合成…");
   try {
     const assets=state.task.bundle.image_assets;
     const bitmaps=[];
     for(const asset of assets) bitmaps.push(await createImageBitmap(await canvasBlob(asset)));
-    const audioData=await fetch(audioServerUrl).then(response=>{if(!response.ok)throw new Error("BGM 读取失败");return response.arrayBuffer();});
+    const audioData=await fetch(audioServerUrl).then(response=>{if(!response.ok)throw new Error("配乐读取失败");return response.arrayBuffer();});
     const context=new (window.AudioContext||window.webkitAudioContext)();
     const decoded=await context.decodeAudioData(audioData.slice(0));
     const canvas=Object.assign(document.createElement("canvas"),{width:720,height:960}),ctx=canvas.getContext("2d");
@@ -652,7 +655,7 @@ async function buildVideoPreview() {
     const blob=new Blob(chunks,{type:mime||"video/webm"}); if(!blob.size)throw new Error("视频文件为空");
     if(videoObjectUrl)URL.revokeObjectURL(videoObjectUrl); videoObjectUrl=URL.createObjectURL(blob);
     const video=$("#videoPreview"),link=$("#videoDownloadLink"); video.src=videoObjectUrl;video.hidden=false;link.href=videoObjectUrl;link.download=`${safeName(state.project.title)}-${state.task.bundle.selected_type === "comic" ? "漫画" : "单图故事卡"}.webm`;link.hidden=false;
-    $("#videoState").textContent=`已合成 ${decoded.duration.toFixed(1)} 秒 WebM 视频（图片 + BGM）。`;
+    $("#videoState").textContent=`已合成 ${decoded.duration.toFixed(1)} 秒 WebM 视频（图片 + 配乐）。`;
   } catch(error) { toast(`视频生成失败：${error.message}`); }
   finally { setBusy(button,false); }
 }
@@ -675,7 +678,7 @@ function parsePcmWav(arrayBuffer) {
 
 async function toggleAudioPreview() {
   const button = $("#bgmPlayBtn");
-  if (audioSource) { audioSource.stop(); audioSource = null; button.textContent = "试听 BGM"; return; }
+  if (audioSource) { audioSource.stop(); audioSource = null; button.textContent = "试听配乐"; return; }
   if (!audioServerUrl) return;
   button.disabled = true; button.textContent = "正在载入…";
   try {
@@ -685,9 +688,9 @@ async function toggleAudioPreview() {
     const wav = parsePcmWav(await response.arrayBuffer()), buffer = audioContext.createBuffer(wav.channels.length, wav.frames, wav.sampleRate);
     wav.channels.forEach((channel,index)=>buffer.copyToChannel(channel,index));
     const source = audioContext.createBufferSource(); source.buffer = buffer; source.connect(audioContext.destination); audioSource = source;
-    source.onended = () => { if (audioSource === source) audioSource = null; button.disabled = false; button.textContent = "试听 BGM"; };
+    source.onended = () => { if (audioSource === source) audioSource = null; button.disabled = false; button.textContent = "试听配乐"; };
     source.start(); button.disabled = false; button.textContent = "停止试听";
-  } catch (error) { audioSource = null; button.disabled = false; button.textContent = "试听 BGM"; toast(`试听失败：${error.message}`); }
+  } catch (error) { audioSource = null; button.disabled = false; button.textContent = "试听配乐"; toast(`试听失败：${error.message}`); }
 }
 
 function canvasTextLines(ctx, text, maxWidth) {
@@ -743,7 +746,8 @@ async function exportPackage() {
     link.href = exportInfo.download_url;
     link.download = `${safeName(metadata.title)}-宣传素材.zip`;
     link.hidden = false;
-    toast("文件已经准备好。");
+    toast("发布包已准备好，请点击下载。");
+    window.dispatchEvent(new CustomEvent("story-complete",{detail:{key:state.task.id,type:"export"}}));
   } catch (error) { toast(`导出失败：${error.message}`); }
   finally { setBusy(button, false); }
 }
@@ -794,7 +798,7 @@ async function loadSample(id) {
     $("#bodyInput").value = sample.body;
     $("#authorizationInput").checked = false;
     state.project.labels = sample.labels || [];
-    updateBodyCount(); syncProjectFromInputs(); toast("已载入授权样例，仅用于体验演示流程");
+    updateBodyCount(); syncProjectFromInputs(); toast("已载入授权样例，可用于体验创作流程");
   } catch (error) { toast(error.message); }
 }
 
@@ -824,7 +828,7 @@ function bindEvents() {
   $("#copyResultHookBtn").onclick = () => copyText((state.task?.bundle?.selected_hook_profile || state.selectedHook).final_text);
   $("#downloadHookBtn").onclick = downloadHook;
   $("#exportPackageBtn").onclick = exportPackage;
-  $("#packageDownloadLink").onclick = () => toast("已提交浏览器下载");
+  $("#packageDownloadLink").onclick = () => toast("已发起下载，请在浏览器下载列表中确认。");
   $("#bgmPlayBtn").onclick = toggleAudioPreview;
   $("#buildVideoBtn").onclick = buildVideoPreview;
   $("#otherMaterialBtn").onclick = () => showPage("action");
