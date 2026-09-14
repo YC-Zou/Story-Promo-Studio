@@ -6,9 +6,7 @@ import { join, resolve } from "node:path";
 
 const port=43173;
 for(const file of ["server.mjs","app.js","poster-editor.js"])execFileSync(process.execPath,["--check",file],{stdio:"inherit"});
-const html=await readFile("index.html","utf8"),hookPrompt=await readFile("docs/product/prompts/hook-generation-v1.md","utf8"),dialoguePrompt=await readFile("docs/product/prompts/highlight-dialogue-v1.md","utf8");
-if(hookPrompt.includes("highlight_dialogue")||hookPrompt.includes("精华聊天记录"))throw new Error("原钩子 Prompt 不应包含聊天记录规则");
-if(!dialoguePrompt.includes("highlight_dialogue")||!dialoguePrompt.includes("不得修改、替代、重排或减少原任务要求"))throw new Error("独立聊天记录 Prompt 缺失或未保护原钩子任务");
+const html=await readFile("index.html","utf8");
 for(const forbidden of ["推荐分","适配评分","AI Prompt","Negative Prompt",">queued<",">succeeded<"])if(html.includes(forbidden))throw new Error(`用户界面仍包含内部文案：${forbidden}`);
 for(const required of ["highlightDialogueCard","chatExportCard","downloadChatImageBtn","buildChatVideoBtn","chatBgmInput"])if(!html.includes(required))throw new Error(`精华对话入口缺失：${required}`);
 for(const file of ["index.html","styles.css","app.js","poster-editor.html","poster-editor.css","poster-editor.js","third_party/fabric/fabric.min.js"])await access(file);

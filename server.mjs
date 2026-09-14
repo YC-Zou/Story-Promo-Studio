@@ -369,8 +369,8 @@ async function analyzeProject(input) {
     modelResult = makeDemoAnalysis(input);
   } else {
     if (!textApiKey) throw error("文字生成功能暂不可用，请稍后重试。", 503);
-    const [hookTemplate,dialogueTemplate] = await Promise.all([readFile(resolve(root, "docs", "product", "prompts", "hook-generation-v1.md"), "utf8"),readFile(resolve(root, "docs", "product", "prompts", "highlight-dialogue-v1.md"), "utf8")]);
-    const initialResult=await callChat(`${renderPrompt(hookTemplate,input)}\n\n${dialogueTemplate}\n\n服务端强制要求：原钩子任务保持不变，candidate_plan 与 candidates 各有且只有 3 项；另在同一 JSON 根对象加入独立的 highlight_dialogue。一次性完成，不执行后续模型复审或重写。`);
+    const template = await readFile(resolve(root, "docs", "product", "prompts", "hook-generation-v1.md"), "utf8");
+    const initialResult=await callChat(`${renderPrompt(template,input)}\n\n服务端强制要求：candidate_plan 与 candidates 必须各有且只有 3 项，三个 hook_type 和三个 strategy 分别互不重复；highlight_dialogue 是同一次响应中的独立对象，不得作为第四个候选。一次性完成全部候选和精华对话，不执行后续模型复审或重写。`);
     if(initialResult?.candidate_plan?.length!==3||initialResult?.candidates?.length!==3||!initialResult?.highlight_dialogue)throw error("没有成功准备三版传播文案和精华对话，请重新生成。",502);
     modelResult=validateModelResult(initialResult);
   }
