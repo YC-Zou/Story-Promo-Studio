@@ -1,17 +1,21 @@
-const STORAGE_KEY = "zhihu-story-workbench-v11";
+const STORAGE_KEY = "zhihu-story-workbench-v12";
+const LEGACY_STORAGE_KEYS=["zhihu-story-workbench-v11"];
 const MAX_BODY = 50000;
 const TYPE_LABELS = {
-  relationship_tension: "关系张力型",
-  abnormal_setting: "异常设定型",
-  identity_contrast: "身份反差型",
-  crisis_choice: "危机选择型",
-  emotional_scene: "情绪名场面型",
+  relationship_tension: "关系冲突",
+  abnormal_setting: "异常设定",
+  identity_contrast: "身份反差",
+  crisis_choice: "危机选择",
+  emotional_scene: "情绪场景",
 };
 const STATUS_LABELS = {
-  queued: "已排队", running: "生成中", succeeded: "已完成",
-  partially_failed: "部分失败", failed: "失败",
+  queued: "等待开始", preparing:"正在准备画面", running: "正在生成",
+  generating_material:"正在生成图片",generating_music:"正在生成配乐",succeeded: "已完成",
+  partially_failed: "图片已完成，配乐未完成", failed: "生成失败",canceled:"已取消",
 };
-const STEP_ORDER = ["input", "analysis", "hooks", "action", "style", "background", "progress", "result"];
+const PAGE_ORDER = ["input", "analysis", "hooks", "action", "style", "background", "progress", "result"];
+const STEP_ORDER = ["input", "hooks", "action", "progress", "result"];
+const PAGE_STEP = {input:"input",analysis:"input",hooks:"hooks",action:"action",style:"action",background:"action",progress:"progress",result:"result"};
 const COMIC_STYLES = [
   { id:"polished-campus", name:"精致校园", sample:"参考 1", desc:"细腻半写实人物、明亮校园光影、清晰分镜", colors:["#9ccff5","#f5d8e5"] },
   { id:"clear-anime", name:"清透日漫", sample:"参考 2", desc:"轻盈线稿、淡彩上色、富有动势的斜切分格", colors:["#dff4f4","#f7e8c8"] },
@@ -24,7 +28,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const blankState = () => ({
   page: "input",
-  project: { id: "", title: "", author: "", sourceUrl: "", authorized: false, body: "", labels: [] },
+  project: { id: "", title: "", author: "", sourceUrl: "", authorized: false, body: "", labels: [], sampleId:"" },
   analysis: null,
   selectedCandidateId: "",
   hookDraft: "",
@@ -37,12 +41,16 @@ const blankState = () => ({
   backgroundId: "",
   backgroundFilter: "all",
   posterDesign: null,
+  musicEnabled:false,
   task: null,
   history: [],
 });
+let migratedLegacy=false;
 let state = loadState();
+if(migratedLegacy)saveState();
 let health = null;
 let pollTimer = null;
+let pollAttempt = 0;
 let audioServerUrl = "";
 let audioContext = null;
 let audioSource = null;
@@ -51,11 +59,14 @@ let analysisTimer = null;
 let analysisStartedAt = 0;
 let videoObjectUrl = "";
 let assetObjectUrls = [];
+let resultRefreshPending = false;
 
 function loadState() {
-  for (const raw of [sessionStorage.getItem(STORAGE_KEY), localStorage.getItem(STORAGE_KEY)]) try {
+  const sources=[STORAGE_KEY,...LEGACY_STORAGE_KEYS].flatMap(key=>[[key,sessionStorage.getItem(key)],[key,localStorage.getItem(key)]]);
+  for (const [key,raw] of sources) try {
     const value = JSON.parse(raw);
     if (value?.project) {
+      if(key!==STORAGE_KEY){migratedLegacy=true;sessionStorage.removeItem(key);localStorage.removeItem(key);}
       const restored = { ...blankState(), ...value };
       const projectId = restored.project?.id || "";
       restored.history = (restored.history || []).filter(item => !projectId || item.project_id === projectId);
@@ -68,9 +79,16 @@ function loadState() {
 }
 
 function saveState() {
-  const snapshot = JSON.stringify(state);
-  sessionStorage.setItem(STORAGE_KEY, snapshot);
-  localStorage.setItem(STORAGE_KEY, snapshot);
+  const persisted=clone(state);
+  persisted.project.body="";
+  persisted.analysis=null;
+  persisted.hookDraft="";
+  const taskSummary=task=>task?{id:task.id,project_id:task.project_id,status:task.status,bundle:{selected_type:task.bundle?.selected_type}}:null;
+  persisted.task=taskSummary(persisted.task);
+  persisted.history=(persisted.history||[]).slice(-4).map(taskSummary).filter(Boolean);
+  try{sessionStorage.setItem(STORAGE_KEY,JSON.stringify(persisted));}catch{}
+  const durable=clone(persisted);if(durable.posterDesign)delete durable.posterDesign.previewDataUrl;
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(durable));}catch{}
 }
 
 function countChars(text = "") { return String(text).replace(/[\s]/g, "").length; }
@@ -96,7 +114,7 @@ function toast(message) {
   item.className = "toast";
   item.textContent = message;
   $("#toastRegion").append(item);
-  setTimeout(() => item.remove(), 3000);
+  setTimeout(() => item.remove(), 4500);
 }
 function setBusy(button, busy, busyText) {
   if (!button.dataset.label) button.dataset.label = button.textContent;
@@ -115,37 +133,45 @@ function api(path, options = {}) {
 async function init() {
   bindEvents();
   hydrateInputs();
-  await Promise.allSettled([checkHealth(), loadSamples()]);
+  await Promise.allSettled([checkHealth(), loadSamples(), restoreProject(), restoreTask()]);
   renderAll();
   const startup = new URLSearchParams(location.search);
   if (startup.get("start_card") === "1") {
     window.history.replaceState(null, "", location.pathname);
     if (state.posterDesign?.backgroundId === state.backgroundId && state.posterDesign?.previewDataUrl) {
-      await startGeneration("card");
+      showPreflight("card");
       return;
     }
     state.page = "background";
     saveState();
     renderAll();
-    toast("没有找到已保存的宣传图，请先保存定稿");
+    toast("没有找到已保存的单图故事卡，请先保存定稿");
   }
   if (state.task && ["queued", "running"].includes(state.task.status)) resumeTask();
+}
+
+async function restoreProject(){
+  if(!state.project.id||state.analysis)return;
+  try{const restored=await api(`/api/projects/${encodeURIComponent(state.project.id)}`);state.analysis=restored.analysis;if(!state.selectedHook&&restored.selected_hook_profile)state.selectedHook=restored.selected_hook_profile;if(!state.recommendation&&restored.recommendation)state.recommendation=restored.recommendation;if(state.page==="hooks"&&!state.hookDraft){const selected=state.analysis.candidates.find(item=>item.candidate_id===state.selectedCandidateId)||state.analysis.candidates[0];state.hookDraft=selected?.rendered_text||"";}}
+  catch{state.project.id="";state.task=null;state.analysis=null;state.page="input";saveState();}
+}
+async function restoreTask(){
+  if(!state.task?.id)return;
+  try{state.task=await api(`/api/tasks/${encodeURIComponent(state.task.id)}`);saveState();}
+  catch{state.task=null;if(["progress","result"].includes(state.page))state.page=state.selectedHook?"action":"input";saveState();}
 }
 
 async function checkHealth() {
   try {
     health = await api("/api/health");
     const el = $("#serviceState");
-    el.className = `service-state ${health.text_model?.verified ? "is-live" : "is-demo"}`;
-    const music = health.music?.reachable ? "本机 BGM 服务可连接" : "BGM 未连接";
-    const textState = health.text_model?.verified
-      ? `钩子模型已验证（${health.text_model.model}）`
-      : health.text_model?.configured
-        ? `钩子模型已配置，等待首次真实调用验证（${health.text_model.model}）`
-        : "钩子模型未配置（不会返回模拟结果）";
-    el.querySelector("span").textContent = `${textState} · ${music}`;
+    el.className = `service-state ${health.mode === "demo" || health.mode === "test" ? "is-demo" : "is-live"}`;
+    const textState=health.mode === "demo" || health.mode === "test" ? "演示模式" : health.services?.text === "available" && health.services?.image === "available" ? "生成功能可用" : health.services?.text !== "available" ? "文字生成暂不可用" : "图片生成暂不可用";
+    const music=health.services?.music === "available" ? "" : " · 配乐暂不可用，不影响图片生成";
+    el.querySelector("span").textContent = `${textState}${music}`;
+    $("#serviceDetailsText").textContent=`当前为${health.mode === "demo" || health.mode === "test" ? "演示模式，仅使用固定授权样例和已审核输出" : "真实生成模式"}。正文和生成文件默认保存 ${health.retention_hours || 24} 小时。`;
   } catch {
-    $("#serviceState").querySelector("span").textContent = "服务状态未知";
+    $("#serviceState").querySelector("span").textContent = "暂时无法确认服务状态";
   }
 }
 
@@ -166,6 +192,7 @@ function hydrateInputs() {
   $("#sourceUrlInput").value = state.project.sourceUrl || "";
   $("#authorizationInput").checked = Boolean(state.project.authorized);
   $("#bodyInput").value = state.project.body || "";
+  $("#deleteProjectBtn").hidden=!state.project.id;
   updateBodyCount();
 }
 
@@ -175,6 +202,7 @@ function syncProjectFromInputs() {
   state.project.sourceUrl = $("#sourceUrlInput").value.trim();
   state.project.authorized = $("#authorizationInput").checked;
   state.project.body = $("#bodyInput").value;
+  validateSourceUrl(false);
   saveState();
 }
 
@@ -183,7 +211,7 @@ function updateBodyCount() {
   const el = $("#charCount");
   el.textContent = `${count.toLocaleString("zh-CN")} / ${MAX_BODY.toLocaleString("zh-CN")}`;
   el.classList.toggle("is-error", count > MAX_BODY);
-  $("#inputError").textContent = count > MAX_BODY ? `正文超出 ${count - MAX_BODY} 个字符，请删减后再分析。系统不会截断正文。` : "";
+  $("#inputError").textContent = count > MAX_BODY ? `正文超出上限 ${count - MAX_BODY} 个字符，请删减后再生成。我们不会截断正文。` : "";
 }
 
 function renderAll() {
@@ -197,13 +225,14 @@ function renderAll() {
 }
 
 function showPage(page, persist = true) {
-  if (!STEP_ORDER.includes(page)) page = "input";
+  if (!PAGE_ORDER.includes(page)) page = "input";
   state.page = page;
   $$('[data-page]').forEach(section => { section.hidden = section.dataset.page !== page; });
-  const current = STEP_ORDER.indexOf(page);
+  const currentStep=PAGE_STEP[page],current = STEP_ORDER.indexOf(currentStep);
+  const currentLabel=$(`[data-step="${currentStep}"] span`)?.textContent||"导入故事";$("#mobileStepLabel").textContent=`第 ${current+1} 步，共 5 步：${currentLabel}`;
   $$('[data-step]').forEach(button => {
     const index = STEP_ORDER.indexOf(button.dataset.step);
-    button.classList.toggle("is-current", index === current);
+    button.classList.toggle("is-current", button.dataset.step === currentStep);
     button.classList.toggle("is-complete", index < current);
     button.disabled = !canVisit(button.dataset.step);
   });
@@ -226,27 +255,34 @@ function canVisit(page) {
 function validateInput() {
   syncProjectFromInputs();
   const errors = [];
-  if (!state.project.title) errors.push("请填写作品名");
-  if (!state.project.author) errors.push("请填写作者名");
+  if (!state.project.title) errors.push("请填写作品名。");
+  if (!state.project.author) errors.push("请填写导出素材中使用的作者署名。");
   const count = countChars(state.project.body);
-  if (!count) errors.push("请粘贴或上传完整正文");
-  if (count > MAX_BODY) errors.push(`正文超出 ${count - MAX_BODY} 个字符`);
-  if (!state.project.authorized) errors.push("请确认作品授权");
-  $("#inputError").textContent = errors.join("；");
+  if (!count) errors.push("请粘贴正文或上传文件。");
+  if (count > MAX_BODY) errors.push(`正文超出上限 ${count - MAX_BODY} 个字符，请删减后再生成。我们不会截断正文。`);
+  if (!state.project.authorized) errors.push("请确认你有权将这篇作品用于 AI 生成和站外宣传。");
+  if(state.project.sourceUrl&&!validateSourceUrl(true))errors.push("请输入有效的知乎原作链接，例如 https://www.zhihu.com/...");
+  $("#inputError").textContent = errors.join(" ");
   return errors.length === 0;
+}
+
+function validateSourceUrl(show=true){
+  const value=$("#sourceUrlInput").value.trim(),valid=!value||/^https:\/\/(?:www\.)?zhihu\.com\//i.test(value);
+  if(show||value)$("#sourceUrlError").textContent=valid?"":"请输入有效的知乎原作链接，例如 https://www.zhihu.com/...";
+  return valid;
 }
 
 async function analyze() {
   if (!validateInput()) return;
   const button = $("#analyzeBtn");
-  setBusy(button, true, "正在分析全文…");
+  setBusy(button, true, "正在阅读故事…");
   analysisStartedAt = Date.now();
   showPage("analysis");
   updateAnalysisProgress();
   try {
     const result = await api("/api/projects/analyze", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: state.project.title, author: state.project.author, source_url: state.project.sourceUrl, authorized: state.project.authorized, body: state.project.body, labels: state.project.labels }),
+      body: JSON.stringify({ title: state.project.title, author: state.project.author, source_url: state.project.sourceUrl, authorized: state.project.authorized, body: state.project.body, labels: state.project.labels, sample_id:state.project.sampleId }),
     });
     state.project.id = result.story_profile.project_id;
     state.analysis = result;
@@ -260,14 +296,14 @@ async function analyze() {
     clearInterval(analysisTimer);
     $("#analysisBar").style.width = "100%";
     $("#analysisPercent").textContent = "100%";
-    $("#analysisPhase").textContent = "分析完成，正在打开候选钩子…";
+    $("#analysisPhase").textContent = "传播文案已准备好，正在打开…";
     saveState();
     renderHooks();
     await new Promise(resolve => setTimeout(resolve, 450));
     showPage("hooks");
-    toast(`已生成 ${result.candidates.length} 条合格候选`);
+    toast(`已准备 ${result.candidates.length} 个传播角度`);
   } catch (error) {
-    $("#inputError").textContent = error.message;
+    $("#inputError").textContent = error.status===429?"当前生成请求较多，请稍后重试。正文仍保留在本页。":error instanceof TypeError?"正文没有提交成功。内容仍保留在本页，请检查网络后重试。":error.message;
     showPage("input");
   } finally { clearInterval(analysisTimer); setBusy(button, false); }
 }
@@ -277,7 +313,7 @@ function updateAnalysisProgress() {
   const tick = () => {
     const seconds = (Date.now() - analysisStartedAt) / 1000;
     const percent = Math.min(94, Math.round(8 + 86 * (1 - Math.exp(-seconds / 58))));
-    const phases = percent < 30 ? "正在阅读全文并建立人物、事件与证据索引…" : percent < 60 ? "正在识别主类别、题材与时空…" : "正在一次性生成三种不同角度的钩子…";
+    const phases = percent < 30 ? "正在阅读故事正文…" : percent < 60 ? "正在梳理人物与情节…" : "正在准备三种传播角度…";
     $("#analysisBar").style.width = `${percent}%`;
     $("#analysisPercent").textContent = `${percent}%`;
     $("#analysisPhase").textContent = phases;
@@ -287,11 +323,12 @@ function updateAnalysisProgress() {
 
 function renderHooks() {
   if (!state.analysis) return;
-  const profile = state.analysis.story_profile;
-  $("#analysisSummary").innerHTML = `<span>规则识别主类别 <b>${escapeHtml(profile.primary_category_label)}</b></span><span>AI 分析语气 <b>${escapeHtml(state.analysis.content_analysis.tone_profile_label)}</b></span><span>叙事人称 <b>${state.analysis.content_analysis.narrative_person === "first_person" ? "第一人称" : "第三人称"}</b></span><span>候选 <b>${state.analysis.candidates.length} 条</b></span><span>生成方式 <b>单次 API · 未追加模型质检</b></span>`;
-  $("#hookGrid").innerHTML = state.analysis.candidates.map(candidate => {
+  $("#analysisSummary").innerHTML = `<span><b>为你准备了 ${state.analysis.candidates.length} 个传播角度</b></span><span>选择后仍可编辑，确认前会进行内容检查。</span>`;
+  const evidence=state.analysis.content_analysis?.evidence_pool||[];
+  $("#hookGrid").innerHTML = state.analysis.candidates.map((candidate,index) => {
     const selected = candidate.candidate_id === state.selectedCandidateId;
-    return `<button class="hook-card${selected ? " is-selected" : ""}" data-candidate="${escapeAttr(candidate.candidate_id)}" type="button"><header><span class="hook-type">${escapeHtml(TYPE_LABELS[candidate.hook_type] || candidate.hook_type)}</span><small>${selected ? "已选" : `推荐分 ${candidate.rank_score.toFixed(1)}`}</small></header><pre>${escapeHtml(candidate.rendered_text)}</pre><p>${escapeHtml(candidate.recommendation_reason)}</p><footer><span>AI 候选建议：${candidate.recommended_material === "comic" ? "漫画" : "宣传图"}</span><span>使用此候选</span></footer></button>`;
+    const refs=[...new Set((candidate.lines||[]).flatMap(line=>line.source_refs||[]))],quotes=refs.map(ref=>evidence.find(item=>item.ref_id===ref)?.quote).filter(Boolean);
+    return `<article class="hook-card${selected ? " is-selected" : ""}"><header><span class="hook-type">${escapeHtml(TYPE_LABELS[candidate.hook_type] || "传播角度")}</span><small>${selected ? "✓ 当前选择" : `方案 ${index+1}`}</small></header><pre>${escapeHtml(candidate.rendered_text)}</pre><p>${escapeHtml(candidate.recommendation_reason)}</p><strong>${candidate.recommended_material === "comic" ? "适合连续漫画" : "适合单图故事卡"}</strong><details><summary>查看原文依据</summary>${quotes.length?`<ul>${quotes.map(quote=>`<li>${escapeHtml(quote)}</li>`).join("")}</ul>`:"<p>暂时无法定位这句话的原文依据。请编辑或选择其他版本。</p>"}</details><button class="button ${selected?"ghost":"primary"} full" data-candidate="${escapeAttr(candidate.candidate_id)}" type="button">${selected?"已选择":"选择这版"}</button></article>`;
   }).join("");
   $$('[data-candidate]').forEach(button => button.onclick = () => selectCandidate(button.dataset.candidate));
   $("#hookEditor").value = state.hookDraft || "";
@@ -319,12 +356,12 @@ function renderValidation(result = null) {
   panel.className = "validation";
   if (result?.validation_status === "passed") {
     panel.classList.add("is-valid");
-    panel.innerHTML = `<b>校验通过</b> · 事实有据、未越过剧透边界；已重新识别钩子类型、情绪和形式建议。`;
+    panel.innerHTML = `<b>检查通过，可以继续制作宣传素材。</b>`;
   } else if (result?.issues?.length) {
     panel.classList.add("is-invalid");
-    panel.innerHTML = `<b>校验未通过</b><br>${result.issues.map(item => `“${escapeHtml(item.sentence)}” — ${escapeHtml(item.message)}`).join("<br>")}`;
+    panel.innerHTML = `<b>这版文案还不能使用</b><br>${result.issues.map(item => `“${escapeHtml(item.sentence)}”${item.code === "spoiler" ? "提前揭示了故事保留的答案或结局。请把文案停在悬念揭晓前。" : `与正文中的人物、事件或因果不一致。${escapeHtml(item.message||"")} 请修改后重试。`}`).join("<br>")}`;
   } else {
-    panel.innerHTML = `<span>${state.hookDirty ? "修改后需要重新校验；未通过前不能进入视觉生成。" : "等待校验"}</span>`;
+    panel.innerHTML = `<span>${state.hookDirty ? "修改后需要重新进行内容检查。" : "等待检查"}</span>`;
   }
 }
 
@@ -334,9 +371,9 @@ async function confirmHook() {
   state.hookDirty = true;
   saveState();
   const count = countChars(text);
-  if (count < 20 || count > 300) return renderValidation({ issues: [{ sentence: "钩子全文", message: `需为 20—300 个非空白字符，当前 ${count} 个` }] });
+  if (count < 20 || count > 300) return renderValidation({ issues: [{ sentence: "传播文案", message: `需要 20—300 个非空白字符，当前 ${count} 个` }] });
   const button = $("#confirmHookBtn");
-  setBusy(button, true, "正在校验…");
+  setBusy(button, true, "正在检查事实和剧透风险…");
   try {
     const result = await api(`/api/projects/${encodeURIComponent(state.project.id)}/select-hook`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -352,17 +389,20 @@ async function confirmHook() {
     renderAction();
     showPage("action");
   } catch (error) {
-    renderValidation({ issues: error.details || [{ sentence: "钩子全文", message: error.message }] });
+    renderValidation({ issues: error.details || [{ sentence: "传播文案", message: error.message }] });
   } finally { setBusy(button, false); }
 }
 
 function renderAction() {
   if (!state.selectedHook || !state.recommendation) return;
   $("#finalHookText").textContent = state.selectedHook.final_text;
-  $("#comicScore").textContent = `适配评分 ${state.recommendation.comic_score}`;
-  $("#cardScore").textContent = `适配评分 ${state.recommendation.card_score}`;
-  const recommended = state.recommendation.recommended_type === "comic" ? "连续漫画" : "单图宣传卡";
-  $("#materialRecommendation").innerHTML = `<b>形式建议：${recommended}</b> · 该建议由程序根据 AI 识别出的钩子类型、对白轮次和叙事节点计算，并非额外一次 AI 判断。${escapeHtml(state.recommendation.deciding_features.join("；"))}。两个入口均可分别制作。`;
+  const features=state.recommendation.deciding_features||[],needsContinuity=features.some(value=>/连续|节点 [3-9]/.test(value));
+  $("#comicScore").textContent = needsContinuity ? "更推荐：文案包含连续动作，需要多张画面呈现。" : "适合：多个画面可以补充故事节奏。";
+  $("#cardScore").textContent = needsContinuity ? "也可选择：用一个核心悬念集中呈现。" : "更推荐：核心信息可以在一张图中讲清楚。";
+  const recommended = (needsContinuity || state.recommendation.recommended_type === "comic") ? "连续漫画" : "单图故事卡";
+  const reason=needsContinuity?"文案包含多个情节节点，需要连续画面说明前后变化。":"一条规则或反差已经足够吸引读者。";
+  $("#materialRecommendation").innerHTML = `<b>更适合${recommended}</b><span>${reason}</span>`;
+  $("#musicEnabledInput").checked=Boolean(state.musicEnabled);
 }
 
 async function chooseMaterial(type) {
@@ -385,7 +425,7 @@ function renderBackgrounds() {
   if (!state.backgrounds.length) return;
   const shortText = groupShortLines(state.selectedHook?.selected_lines || []).map(stripPosterPunctuation).join("\n");
   const visible = state.backgrounds.filter(item => state.backgroundFilter === "all" || state.backgroundFilter === "recommended" && item.recommended || item.dimension === state.backgroundFilter);
-  $("#backgroundGrid").innerHTML = visible.map(item => `<button class="background-option${item.id === state.backgroundId ? " is-selected" : ""}" data-background="${escapeAttr(item.id)}" type="button"><div class="background-art" style="--bg:${escapeAttr(item.css_background)}"><img src="${escapeAttr(item.thumbnail_url)}" alt="${escapeAttr(item.name)}底图"><span class="background-badge">${item.recommended ? "AI 相关" : item.dimension === "genre" ? "题材" : "时空"}</span><pre>${escapeHtml(shortText)}</pre></div><footer><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small></footer></button>`).join("");
+  $("#backgroundGrid").innerHTML = visible.map(item => `<button class="background-option${item.id === state.backgroundId ? " is-selected" : ""}" data-background="${escapeAttr(item.id)}" type="button"><div class="background-art" style="--bg:${escapeAttr(item.css_background)}"><img src="${escapeAttr(item.thumbnail_url)}" alt="${escapeAttr(item.name)}底图"><span class="background-badge">${item.recommended ? "更相关" : item.dimension === "genre" ? "题材" : "时空"}</span><pre>${escapeHtml(shortText)}</pre></div><footer><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small></footer></button>`).join("");
   $$('[data-background]').forEach(button => button.onclick = () => {
     state.backgroundId = button.dataset.background;
     if (state.posterDesign?.backgroundId !== state.backgroundId) state.posterDesign = null;
@@ -393,9 +433,9 @@ function renderBackgrounds() {
   });
   const saved = state.posterDesign && state.posterDesign.backgroundId === state.backgroundId && state.posterDesign.previewDataUrl;
   $("#posterDraftPreview").hidden = !saved;
-  if (saved) { $("#posterDraftImage").src = state.posterDesign.previewDataUrl; $("#posterDraftStyle").textContent = state.posterDesign.styleName || "宣传图定稿"; }
+  if (saved) { $("#posterDraftImage").src = state.posterDesign.previewDataUrl; $("#posterDraftStyle").textContent = state.posterDesign.styleName || "单图故事卡定稿"; }
   $("#startCardBtn").disabled = !state.backgroundId;
-  $("#startCardBtn").textContent = saved ? "使用这版定稿生成" : "下一步：编辑宣传图";
+  $("#startCardBtn").textContent = saved ? "查看生成预案" : "下一步：编辑单图故事卡";
   $("#backgroundHint").textContent = saved ? "排版已保存，可以生成" : state.backgroundId ? "底图已选择，请继续编辑排版" : "请选择一张底图";
   $$('[data-bg-filter]').forEach(button => button.classList.toggle("is-active", button.dataset.bgFilter === state.backgroundFilter));
 }
@@ -415,17 +455,32 @@ function openPosterEditor() {
   location.href = "./poster-editor.html?mode=draft";
 }
 
+function showPreflight(type=state.materialType){
+  state.materialType=type;
+  const isComic=type==="comic",lineCount=state.selectedHook?.selected_lines?.length||4,pageCount=Math.min(8,Math.max(2,Math.ceil(lineCount/4)));
+  $("#preflightTitle").textContent=isComic?"连续漫画生成预案":"单图故事卡生成预案";
+  const background=state.backgrounds.find(item=>item.id===state.backgroundId);
+  const beats=(state.selectedHook?.selected_lines||[]).slice(0,pageCount).map((line,index)=>`<li>第 ${index+1} 页：${escapeHtml(line.text)}</li>`).join("");
+  $("#preflightContent").innerHTML=isComic?`<dl><div><dt>预计页数</dt><dd>${pageCount} 页</dd></div><div><dt>情节节拍</dt><dd><ol>${beats}</ol></dd></div><div><dt>预计等待</dt><dd>${health?.mode==="demo"?"约 5 秒":"约 2–6 分钟"}</dd></div></dl>`:`<dl><div><dt>已选背景</dt><dd>${escapeHtml(background?.name||"已保存背景")}</dd></div><div><dt>画面文案</dt><dd>${escapeHtml((state.posterDesign?.lines||[]).join(" / "))}</dd></div><div><dt>预计等待</dt><dd>${health?.mode==="demo"?"约 5 秒":"约 30–90 秒"}</dd></div></dl>`;
+  if(!/^https:\/\/(?:www\.)?zhihu\.com\//i.test(state.project.sourceUrl||""))$("#preflightContent").insertAdjacentHTML("beforeend",'<p class="preflight-warning">你还没有填写知乎原作链接。可以继续生成预览，但填写链接后才能导出发布素材。</p>');
+  $("#preflightMusicInput").checked=Boolean(state.musicEnabled);
+  $("#preflightConfirmBtn").textContent=isComic?"开始生成连续漫画":"开始生成单图故事卡";
+  $("#preflightDialog").showModal();
+}
+
 async function startGeneration(type = state.materialType) {
-  if (!state.selectedHook || state.hookDirty) return toast("请先确认有效钩子");
+  if (!state.selectedHook || state.hookDirty) return toast("请先确认传播文案");
   if (type === "card" && !state.backgroundId) return toast("请先选择底图");
   if (type === "comic" && !state.comicStyleId) return toast("请先选择漫画画风");
   const posterDesign = type === "card" && state.posterDesign ? { style:state.posterDesign.style, style_name:state.posterDesign.styleName, tone:state.posterDesign.tone, lines:state.posterDesign.lines, positions:state.posterDesign.positions } : undefined;
-  const payload = { selected_type: type, background_id: type === "card" ? state.backgroundId : undefined, comic_style: type === "comic" ? state.comicStyleId : undefined, poster_design:posterDesign, poster_image_data_url:type === "card" ? state.posterDesign?.previewDataUrl : undefined, simulate_failure: simulatedFailure };
+  const payload = { selected_type: type, background_id: type === "card" ? state.backgroundId : undefined, comic_style: type === "comic" ? state.comicStyleId : undefined, poster_design:posterDesign, poster_image_data_url:type === "card" ? state.posterDesign?.previewDataUrl : undefined, music_enabled:Boolean(state.musicEnabled) };
+  if(simulatedFailure)payload.simulate_failure=simulatedFailure;
   simulatedFailure = "";
   try {
     if (state.task && ["succeeded","partially_failed","failed"].includes(state.task.status) && !state.history.some(item => item.id === state.task.id)) state.history.push(clone(state.task));
     state.materialType = type;
-    state.task = { id:"", project_id:state.project.id, status:"queued", progress:2, message:"正在创建生成任务…", subtasks:[{id:"material",label:type === "comic" ? "漫画图组" : "单图合成",status:"queued",message:"等待任务创建"},{id:"music",label:"BGM",status:"queued",message:"等待任务创建"}], bundle:{selected_type:type,image_assets:[]} };
+    const subtasks=[{id:"visual_context",label:"整理角色和场景",status:"queued",message:"等待开始"},{id:"material",label:"生成图片",status:"queued",message:"等待开始"}];if(state.musicEnabled)subtasks.push({id:"music_prompt",label:"准备配乐",status:"queued",message:"等待开始"},{id:"music",label:"生成配乐",status:"queued",message:"等待开始"});
+    state.task = { id:"", project_id:state.project.id, status:"queued", progress:2, message:"等待服务开始处理", subtasks, bundle:{selected_type:type,image_assets:[]} };
     renderTask(); showPage("progress");
     const task = await api(`/api/projects/${encodeURIComponent(state.project.id)}/generate`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -439,6 +494,7 @@ async function startGeneration(type = state.materialType) {
 
 function resumeTask() {
   clearTimeout(pollTimer);
+  pollAttempt=0;
   pollTask();
 }
 
@@ -447,11 +503,11 @@ async function pollTask() {
   try {
     state.task = await api(`/api/tasks/${encodeURIComponent(state.task.id)}`);
     saveState(); renderTask();
-    if (["queued", "running"].includes(state.task.status)) pollTimer = setTimeout(pollTask, 700);
+    if (["queued", "running"].includes(state.task.status)){pollAttempt+=1;pollTimer = setTimeout(pollTask,Math.min(5000,1000*Math.pow(1.35,pollAttempt)));}
     else if (["succeeded", "partially_failed"].includes(state.task.status)) { renderResult(); showPage("result"); }
   } catch (error) {
     $("#progressMessage").textContent = `状态读取失败：${error.message}`;
-    pollTimer = setTimeout(pollTask, 2000);
+    pollAttempt+=1;pollTimer = setTimeout(pollTask,Math.min(10000,2000*Math.pow(1.4,pollAttempt)));
   }
 }
 
@@ -459,16 +515,32 @@ function renderTask() {
   const task = state.task;
   if (!task) return;
   const badge = $("#taskStatusBadge");
-  badge.textContent = task.status;
+  badge.textContent = STATUS_LABELS[task.status] || "状态更新中";
   badge.dataset.status = task.status;
   $("#progressPercent").textContent = `${task.progress}%`;
   $("#progressBar").style.width = `${task.progress}%`;
   $("#progressTitle").textContent = STATUS_LABELS[task.status] || task.status;
-  $("#progressMessage").textContent = task.message;
-  $("#subtaskList").innerHTML = task.subtasks.map(sub => `<div class="subtask is-${escapeAttr(sub.status)}"><b>${escapeHtml(sub.label)}</b><span>${escapeHtml(STATUS_LABELS[sub.status] || sub.status)}</span><p>${escapeHtml(sub.message || "")}</p></div>`).join("");
+  $("#progressMessage").textContent = userTaskMessage(task);
+  $("#subtaskList").innerHTML = task.subtasks.map(sub => `<div class="subtask is-${escapeAttr(sub.status)}"><b>${escapeHtml(sub.label)}</b><span>${escapeHtml(STATUS_LABELS[sub.status] || "状态更新中")}</span><p>${escapeHtml(userSubtaskMessage(sub))}</p></div>`).join("");
   const retryable = ["failed", "partially_failed"].includes(task.status) && task.subtasks.some(item => item.status === "failed" && item.retryable);
   $("#retryTaskBtn").hidden = !retryable;
   $("#viewResultBtn").hidden = !["succeeded", "partially_failed"].includes(task.status);
+  $("#cancelTaskBtn").hidden=!["queued","running"].includes(task.status);
+}
+
+function userTaskMessage(task){
+  if(task.status==="partially_failed")return "图片已经完成，配乐没有生成成功。你可以直接使用图片，或单独重试配乐。";
+  if(task.status==="failed")return "生成没有完成。请重试；已完成的内容会保留。";
+  if(task.status==="canceled")return "生成已取消。";
+  if(task.status==="succeeded")return "宣传素材已完成，请查看并复核。";
+  return task.status==="queued"?"等待服务开始处理。":"正在处理，请保持页面打开。";
+}
+function userSubtaskMessage(sub){if(sub.status==="succeeded")return `${sub.label}已完成`;if(sub.status==="failed")return `${sub.label}没有完成，可以重试`;if(sub.status==="canceled")return "已取消";if(sub.status==="running")return `正在${sub.label}`;return "等待开始";}
+
+async function cancelTask(){
+  if(!state.task?.id)return;
+  const button=$("#cancelTaskBtn");setBusy(button,true,"正在取消…");
+  try{state.task=await api(`/api/tasks/${encodeURIComponent(state.task.id)}/cancel`,{method:"POST"});clearTimeout(pollTimer);saveState();renderTask();toast("生成已取消");}catch(error){toast(error.message);}finally{setBusy(button,false);}
 }
 
 async function retryTask() {
@@ -487,45 +559,51 @@ function renderResult() {
   const packageLink = $("#packageDownloadLink"); packageLink.hidden = true; packageLink.removeAttribute("href");
   assetObjectUrls.forEach(url=>URL.revokeObjectURL(url)); assetObjectUrls=[];
   const badge = $("#resultStatusBadge");
-  badge.textContent = task.status;
+  badge.textContent = STATUS_LABELS[task.status] || "状态已更新";
   badge.dataset.status = task.status;
   const pages = task.bundle?.image_assets || [];
+  if(!pages.length&&task.id&&!resultRefreshPending){resultRefreshPending=true;api(`/api/tasks/${encodeURIComponent(task.id)}`).then(latest=>{state.task=latest;saveState();resultRefreshPending=false;renderResult();}).catch(()=>{resultRefreshPending=false;});}
   const resultType = task.bundle?.selected_type || state.materialType;
   const resultHook = task.bundle?.selected_hook_profile || state.selectedHook;
-  const metadata = task.bundle?.project_metadata || { title:state.project.title, author:state.project.author, source_url:state.project.sourceUrl };
+  const metadata = { ...(task.bundle?.project_metadata || {}), title:state.project.title || task.bundle?.project_metadata?.title, author:state.project.author || task.bundle?.project_metadata?.author, source_url:state.project.sourceUrl || task.bundle?.project_metadata?.source_url || "" };
   const posterEditorLink = $("#posterEditorLink");
   posterEditorLink.hidden = resultType !== "card" || !pages.length;
   if (!posterEditorLink.hidden) posterEditorLink.href = "./poster-editor.html?mode=draft";
-  $("#visualResultTitle").textContent = resultType === "comic" ? `连续漫画${task.bundle?.comic_style?.label ? ` · ${task.bundle.comic_style.label}` : ""}` : "单图宣传卡";
-  $("#assetCount").textContent = `${pages.length} 张`;
+  $("#visualResultTitle").textContent = resultType === "comic" ? `连续漫画，共 ${pages.length} 页` : "单图故事卡";
+  $("#assetCount").textContent = resultType === "comic"?`${pages.length} 页`:`${pages.length} 张`;
   $("#visualResults").classList.toggle("is-card", resultType === "card");
   $("#visualResults").innerHTML = pages.map((asset, index) => {
     const source=asset.image_url||asset.background_asset_url, isComic=resultType==="comic"&&asset.panels?.length;
     const copy=isComic ? `<div class="comic-page-overlay" style="--panels:${asset.panels.length}">${asset.panels.map(panel=>`<div class="comic-panel-copy is-${escapeAttr(panel.type)}"><span>${escapeHtml(panel.text)}</span></div>`).join("")}</div>` : asset.prepared_poster ? "" : `<pre>${escapeHtml(asset.text)}</pre>`;
-    const downloadLabel=resultType === "comic" ? `第 ${index + 1} 页` : "宣传图";
-    return `<article class="visual-result"><div class="visual-canvas${isComic?" is-comic":""}${asset.prepared_poster?" is-prepared":""}" data-visual="${index}" style="--bg:${escapeAttr(asset.css_background)}">${source ? `<img src="${escapeAttr(source)}" alt="第 ${index + 1} 张视觉底图">` : ""}${copy}${asset.show_attribution && !asset.prepared_poster ? `<small>《${escapeHtml(metadata.title)}》 · ${escapeHtml(metadata.author)} · AI 辅助 · 知乎阅读原作</small>` : ""}</div><div class="asset-actions"><button class="asset-action asset-download" data-download-asset="${index}" type="button"><span><b>准备${downloadLabel}</b><small>生成高清 PNG 文件</small></span><i aria-hidden="true">↓</i></button><a class="asset-action asset-download-link" data-asset-link="${index}" href="#" download hidden><span><b>下载${downloadLabel}</b><small>PNG · 1080 × 1440</small></span><i aria-hidden="true">↓</i></a></div></article>`;
+    const downloadLabel=resultType === "comic" ? `第 ${index + 1} 页` : "单图故事卡";
+    const previous=asset.versions?.length?`${asset.versions.at(-1)?.preview_available?`<a class="text-button" href="/api/tasks/${encodeURIComponent(task.id)}/images/${index}/previous" target="_blank">查看上一版</a>`:""}<button class="text-button" data-restore-asset="${index}" type="button">恢复上一版</button>`:"";
+    return `<article class="visual-result"><div class="visual-canvas${isComic?" is-comic":""}${asset.prepared_poster?" is-prepared":""}" data-visual="${index}" style="--bg:${escapeAttr(asset.css_background)}">${source ? `<img src="${escapeAttr(source)}" alt="第 ${index + 1} 张视觉底图">` : ""}${copy}${asset.show_attribution && !asset.prepared_poster ? `<small>《${escapeHtml(metadata.title)}》 · ${escapeHtml(metadata.author)} · AI 辅助 · 知乎阅读原作</small>` : ""}</div><div class="review-actions">${source?`<a class="text-button" href="${escapeAttr(source)}" target="_blank">查看大图</a>`:""}${resultType==="comic"?`<button class="text-button" data-report-asset="${index}" type="button">这页有问题</button>`:`<a class="text-button" href="./poster-editor.html?mode=draft">更换背景或重新排版</a>`}${previous}</div><div class="asset-actions"><button class="asset-action asset-download" data-download-asset="${index}" type="button"><span><b>准备${downloadLabel}</b><small>生成高清 PNG 文件</small></span><i aria-hidden="true">↓</i></button><a class="asset-action asset-download-link" data-asset-link="${index}" href="#" download hidden><span><b>下载${downloadLabel}</b><small>PNG · 1080 × 1440</small></span><i aria-hidden="true">↓</i></a></div></article>`;
   }).join("");
-  $$('[data-download-asset]').forEach(button => button.onclick = async () => { const index=Number(button.dataset.downloadAsset); setBusy(button,true,"正在生成 PNG…"); try { const url=URL.createObjectURL(await canvasBlob(pages[index])); assetObjectUrls.push(url); const link=$(`[data-asset-link="${index}"]`);link.href=url;link.download=resultType === "comic" ? `${safeName(metadata.title)}-漫画-${String(index+1).padStart(2,"0")}.png` : `${safeName(metadata.title)}-宣传图.png`;link.hidden=false;button.hidden=true;toast("PNG 已准备，请点击下载链接保存"); } catch(error) { toast(`PNG 准备失败：${error.message}`); } finally { setBusy(button,false); } });
+  $$('[data-download-asset]').forEach(button => button.onclick = async () => { const index=Number(button.dataset.downloadAsset); setBusy(button,true,"正在生成 PNG…"); try { const url=URL.createObjectURL(await canvasBlob(pages[index])); assetObjectUrls.push(url); const link=$(`[data-asset-link="${index}"]`);link.href=url;link.download=resultType === "comic" ? `${safeName(metadata.title)}-漫画-${String(index+1).padStart(2,"0")}.png` : `${safeName(metadata.title)}-单图故事卡.png`;link.hidden=false;button.hidden=true;toast("PNG 已准备，请点击下载链接保存"); } catch(error) { toast(`PNG 准备失败：${error.message}`); } finally { setBusy(button,false); } });
+  $$('[data-report-asset]').forEach(button=>button.onclick=()=>openIssueDialog(Number(button.dataset.reportAsset)));
+  $$('[data-restore-asset]').forEach(button=>button.onclick=()=>restoreAsset(Number(button.dataset.restoreAsset)));
   $("#publishCopy").textContent = resultHook.final_text;
-  $("#musicPreset").textContent = task.bundle?.music_profile?.preset_label || "未生成";
-  $("#musicPrompt").textContent = task.bundle?.music_profile?.prompt || "未生成";
-  $("#musicNegativePrompt").textContent = task.bundle?.music_profile?.negative_prompt || "未生成";
-  $("#musicPromptDetails").hidden = !task.bundle?.music_profile?.prompt;
+  $("#musicPreset").textContent = task.music_enabled ? (task.bundle?.music_profile?.preset_label || "正在准备配乐") : "本次未选择配乐";
   const music = task.subtasks.find(item => item.id === "music");
-  $("#audioState").textContent = music?.message || "";
+  $("#audioState").textContent = !task.music_enabled?"配乐为可选项，本次未生成。":music?.status==="succeeded"?`配乐已生成，时长约 ${task.bundle?.music_profile?.duration||20} 秒。`:"配乐没有生成成功，不影响图片和传播文案的使用。";
   prepareAudio(music?.status === "succeeded", task.bundle?.audio_url);
   resetVideo(music?.status === "succeeded" && pages.length > 0);
-  const hasUrl = /^https?:\/\//i.test(metadata.source_url || "");
+  const hasUrl = /^https:\/\/(?:www\.)?zhihu\.com\//i.test(metadata.source_url || "");
   $("#exportWarning").className = `export-warning${hasUrl ? "" : " is-error"}`;
-  $("#exportWarning").textContent = hasUrl ? "发布包将包含作品署名、原作链接和 AI 辅助说明。" : "缺少有效原作链接：可以预览，但正式发布包导出已禁用。";
+  $("#exportWarning").textContent = hasUrl ? "发布包将包含作品名、作者署名、知乎原作链接和 AI 辅助生成说明。" : "请填写有效的知乎原作链接后再导出发布素材。";
   $("#exportPackageBtn").disabled = !hasUrl || !pages.length;
   renderHistory();
 }
 
+let issueAssetIndex=-1;
+function openIssueDialog(index){issueAssetIndex=index;$("#issueDialogTitle").textContent=`第 ${index+1} 页有什么问题？`;$("#issueConfirmText").textContent=`只会重新生成第 ${index+1} 页，其他页面不会改变。`;$("#issueNoteInput").value="";$("#regenerateAssetBtn").textContent=`重新生成第 ${index+1} 页`;$("#issueDialog").showModal();}
+async function regenerateAsset(){if(issueAssetIndex<0)return;const button=$("#regenerateAssetBtn");setBusy(button,true,"正在提交…");try{state.task=await api(`/api/tasks/${encodeURIComponent(state.task.id)}/assets/${issueAssetIndex}/regenerate`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({issue_type:$("#issueTypeInput").value,note:$("#issueNoteInput").value})});$("#issueDialog").close();saveState();renderTask();showPage("progress");resumeTask();}catch(error){toast(error.message);}finally{setBusy(button,false);}}
+async function restoreAsset(index){try{state.task=await api(`/api/tasks/${encodeURIComponent(state.task.id)}/assets/${index}/restore`,{method:"POST"});saveState();renderResult();toast(`已恢复第 ${index+1} 页的上一版`);}catch(error){toast(error.message);}}
+
 function renderHistory() {
   const rows = (state.history || []).filter(item => item.id !== state.task?.id);
   $("#historyWrap").hidden = !rows.length;
-  $("#historyList").innerHTML = rows.map(item => `<button class="text-button" type="button" data-history-task="${escapeAttr(item.id)}">${item.bundle?.selected_type === "comic" ? "连续漫画" : "单图宣传卡"} · ${escapeHtml(STATUS_LABELS[item.status] || item.status)}</button>`).join("");
+  $("#historyList").innerHTML = rows.map(item => `<button class="text-button" type="button" data-history-task="${escapeAttr(item.id)}">${item.bundle?.selected_type === "comic" ? "连续漫画" : "单图故事卡"} · ${escapeHtml(STATUS_LABELS[item.status] || "状态已更新")}</button>`).join("");
   $$('[data-history-task]').forEach(button => button.onclick = () => { const previous=state.history.find(item=>item.id===button.dataset.historyTask); if(!previous)return; if(state.task&&!state.history.some(item=>item.id===state.task.id))state.history.push(clone(state.task)); state.task=clone(previous); state.materialType=state.task.bundle?.selected_type||state.materialType; saveState(); renderResult(); showPage("result"); });
 }
 
@@ -573,7 +651,7 @@ async function buildVideoPreview() {
     await finished; await context.close(); bitmaps.forEach(bitmap=>bitmap.close());
     const blob=new Blob(chunks,{type:mime||"video/webm"}); if(!blob.size)throw new Error("视频文件为空");
     if(videoObjectUrl)URL.revokeObjectURL(videoObjectUrl); videoObjectUrl=URL.createObjectURL(blob);
-    const video=$("#videoPreview"),link=$("#videoDownloadLink"); video.src=videoObjectUrl;video.hidden=false;link.href=videoObjectUrl;link.download=`${safeName(state.project.title)}-${state.task.bundle.selected_type === "comic" ? "漫画" : "宣传图"}.webm`;link.hidden=false;
+    const video=$("#videoPreview"),link=$("#videoDownloadLink"); video.src=videoObjectUrl;video.hidden=false;link.href=videoObjectUrl;link.download=`${safeName(state.project.title)}-${state.task.bundle.selected_type === "comic" ? "漫画" : "单图故事卡"}.webm`;link.hidden=false;
     $("#videoState").textContent=`已合成 ${decoded.duration.toFixed(1)} 秒 WebM 视频（图片 + BGM）。`;
   } catch(error) { toast(`视频生成失败：${error.message}`); }
   finally { setBusy(button,false); }
@@ -653,51 +731,25 @@ async function canvasBlob(asset) {
 
 async function exportPackage() {
   const button = $("#exportPackageBtn");
-  setBusy(button, true, "正在打包…");
+  setBusy(button, true, "正在准备下载文件…");
   try {
     if (state.task.project_id !== state.project.id) throw new Error("当前任务不属于正在编辑的项目，请返回作品页重新生成");
-    await api(`/api/projects/${encodeURIComponent(state.project.id)}/export?task_id=${encodeURIComponent(state.task.id)}`);
-    const entries = [];
+    await api(`/api/projects/${encodeURIComponent(state.project.id)}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:state.project.title,author:state.project.author,source_url:state.project.sourceUrl})});
+    const exportInfo=await api(`/api/projects/${encodeURIComponent(state.project.id)}/export?task_id=${encodeURIComponent(state.task.id)}`);
     const assets = state.task.bundle.image_assets, resultHook = state.task.bundle?.selected_hook_profile || state.selectedHook, resultType=state.task.bundle?.selected_type || state.materialType;
     const metadata = state.task.bundle?.project_metadata || { title:state.project.title, author:state.project.author, source_url:state.project.sourceUrl };
-    for (let i = 0; i < assets.length; i++) entries.push({ name: resultType === "card" ? "images/card.png" : `images/${String(i + 1).padStart(2, "0")}.png`, data: new Uint8Array(await (await canvasBlob(assets[i])).arrayBuffer()) });
-    if (audioServerUrl) {
-      const audio = await fetch(audioServerUrl).then(r => r.arrayBuffer());
-      entries.push({ name: "audio/bgm.wav", data: new Uint8Array(audio) });
-    }
-    const projectJson = { exported_at: new Date().toISOString(), story: metadata, selected_hook_profile: resultHook, material_type: resultType, task: state.task };
-    entries.push(textEntry("project.json", JSON.stringify(projectJson, null, 2)));
-    entries.push(textEntry("README.txt", `《${metadata.title}》\n作者：${metadata.author}\n知乎原作：${metadata.source_url}\n物料：${resultType === "comic" ? "连续漫画" : "单图宣传卡"}\nAI 辅助生成，请发布前由作者复核。`));
-    const packageBlob=buildZip(entries);
-    const prepared=await fetch(`/api/tasks/${encodeURIComponent(state.task.id)}/package`,{method:"POST",headers:{"Content-Type":"application/zip"},body:packageBlob});
-    const preparedResult=await prepared.json().catch(()=>({}));if(!prepared.ok)throw new Error(preparedResult.error||`发布包暂存失败（${prepared.status}）`);
+    for(let i=0;i<assets.length;i++){const blob=await canvasBlob(assets[i]),saved=await fetch(`/api/tasks/${encodeURIComponent(state.task.id)}/final-images/${i}`,{method:"POST",headers:{"Content-Type":"image/png"},body:blob});if(!saved.ok)throw new Error((await saved.json().catch(()=>({}))).error||`第 ${i+1} 张图片准备失败`);}
     const link = $("#packageDownloadLink");
-    link.href = preparedResult.download_url;
-    link.download = `${safeName(metadata.title)}-${resultType === "comic" ? "连续漫画" : "单图宣传卡"}.zip`;
+    link.href = exportInfo.download_url;
+    link.download = `${safeName(metadata.title)}-宣传素材.zip`;
     link.hidden = false;
-    toast("发布包已准备，请点击下载链接保存");
+    toast("文件已经准备好。");
   } catch (error) { toast(`导出失败：${error.message}`); }
   finally { setBusy(button, false); }
 }
 
-function textEntry(name, text) { return { name, data: new TextEncoder().encode(text) }; }
 function safeName(value) { return String(value || "story").replace(/[\\/:*?"<>|]/g, "-"); }
 function downloadBlob(blob, name) { const url = URL.createObjectURL(blob); const a = Object.assign(document.createElement("a"), { href: url, download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
-function crc32(bytes) { let crc = -1; for (const byte of bytes) { crc ^= byte; for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1)); } return (crc ^ -1) >>> 0; }
-function buildZip(entries) {
-  const chunks = [], central = []; let offset = 0;
-  const u16 = n => new Uint8Array([n & 255, n >>> 8 & 255]); const u32 = n => new Uint8Array([n & 255, n >>> 8 & 255, n >>> 16 & 255, n >>> 24 & 255]);
-  for (const entry of entries) {
-    const name = new TextEncoder().encode(entry.name), crc = crc32(entry.data);
-    const local = concat(u32(0x04034b50), u16(20), u16(0x800), u16(0), u16(0), u16(0), u32(crc), u32(entry.data.length), u32(entry.data.length), u16(name.length), u16(0), name, entry.data);
-    chunks.push(local);
-    central.push(concat(u32(0x02014b50), u16(20), u16(20), u16(0x800), u16(0), u16(0), u16(0), u32(crc), u32(entry.data.length), u32(entry.data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name));
-    offset += local.length;
-  }
-  const centralData = concat(...central); const end = concat(u32(0x06054b50), u16(0), u16(0), u16(entries.length), u16(entries.length), u32(centralData.length), u32(offset), u16(0));
-  return new Blob([...chunks, centralData, end], { type: "application/zip" });
-}
-function concat(...arrays) { const out = new Uint8Array(arrays.reduce((n, a) => n + a.length, 0)); let offset = 0; arrays.forEach(a => { out.set(a, offset); offset += a.length; }); return out; }
 
 async function importFile(file) {
   try {
@@ -706,7 +758,7 @@ async function importFile(file) {
     $("#bodyInput").value = text.trim();
     if (!$("#titleInput").value) $("#titleInput").value = file.name.replace(/\.(txt|md|markdown|docx)$/i, "");
     updateBodyCount(); syncProjectFromInputs(); toast("正文已导入");
-  } catch (error) { $("#inputError").textContent = `文件解析失败：${error.message}。请改为粘贴文本。`; }
+  } catch (error) { $("#inputError").textContent = file.name.toLowerCase().endsWith(".docx") ? "没有成功读取这个 DOCX。你可以另存为 TXT，或直接粘贴正文。" : error.message.includes("没有可读取") ? "文件中没有可读取的正文，请检查文件后重试。" : `文件没有读取成功：${error.message}`; }
 }
 
 async function readDocx(file) {
@@ -733,23 +785,26 @@ async function readDocx(file) {
 }
 
 async function loadSample(id) {
-  if (!id) return;
+  state.project.sampleId=id||"";if (!id){saveState();return;}
   try {
     const sample = await api(`/api/samples/${encodeURIComponent(id)}`);
     $("#titleInput").value = sample.title;
-    $("#authorInput").value = "授权样例作者";
+    $("#authorInput").value = sample.author_name || "授权样例作者";
+    $("#sourceUrlInput").value = sample.source_url || "";
     $("#bodyInput").value = sample.body;
-    $("#authorizationInput").checked = true;
+    $("#authorizationInput").checked = false;
     state.project.labels = sample.labels || [];
-    updateBodyCount(); syncProjectFromInputs(); toast("已载入授权故事正文；官方钩子不会进入生成请求");
+    updateBodyCount(); syncProjectFromInputs(); toast("已载入授权样例，仅用于体验演示流程");
   } catch (error) { toast(error.message); }
 }
 
 async function downloadHook() {
-  try { const response = await fetch(`/api/projects/${encodeURIComponent(state.project.id)}/hooks/selected/export`); if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `下载失败（${response.status}）`); downloadBlob(await response.blob(), "hook.txt"); }
+  try { const response = await fetch(`/api/projects/${encodeURIComponent(state.project.id)}/hooks/selected/export`); if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `下载失败（${response.status}）`); downloadBlob(await response.blob(), "传播文案.txt"); }
   catch (error) { toast(error.message); }
 }
 async function copyText(text) { try { await navigator.clipboard.writeText(text); toast("已复制"); } catch { toast("浏览器未开放剪贴板权限"); } }
+
+async function deleteCurrentProject(){const button=$("#confirmDeleteBtn");setBusy(button,true,"正在删除…");try{if(state.project.id)await api(`/api/projects/${encodeURIComponent(state.project.id)}`,{method:"DELETE"});clearTimeout(pollTimer);for(const key of [STORAGE_KEY,...LEGACY_STORAGE_KEYS]){sessionStorage.removeItem(key);localStorage.removeItem(key);}for(const key of Object.keys(localStorage))if(key.startsWith("poster-style-draft-"))localStorage.removeItem(key);state=blankState();$("#deleteDialog").close();hydrateInputs();renderAll();toast("作品及生成记录已删除。");}catch(error){toast(error.message);}finally{setBusy(button,false);}}
 
 function bindEvents() {
   ["titleInput", "authorInput", "sourceUrlInput", "authorizationInput"].forEach(id => $(`#${id}`).addEventListener("input", syncProjectFromInputs));
@@ -758,11 +813,12 @@ function bindEvents() {
   $("#hookEditor").addEventListener("input", event => { state.hookDraft = event.target.value; state.hookDirty = true; state.selectedHook = null; updateHookLength(); renderValidation(); saveState(); });
   $("#confirmHookBtn").onclick = confirmHook;
   $$('[data-material]').forEach(button => button.onclick = () => chooseMaterial(button.dataset.material));
-  $("#startComicBtn").onclick = () => startGeneration("comic");
-  $("#startCardBtn").onclick = () => state.posterDesign?.backgroundId === state.backgroundId && state.posterDesign?.previewDataUrl ? startGeneration("card") : openPosterEditor();
+  $("#startComicBtn").onclick = () => showPreflight("comic");
+  $("#startCardBtn").onclick = () => state.posterDesign?.backgroundId === state.backgroundId && state.posterDesign?.previewDataUrl ? showPreflight("card") : openPosterEditor();
   $("#editPosterBtn").onclick = openPosterEditor;
   $$('[data-bg-filter]').forEach(button => button.onclick = () => { state.backgroundFilter=button.dataset.bgFilter; saveState(); renderBackgrounds(); });
   $("#retryTaskBtn").onclick = retryTask;
+  $("#cancelTaskBtn").onclick=cancelTask;
   $("#viewResultBtn").onclick = () => { renderResult(); showPage("result"); };
   $("#copyHookBtn").onclick = () => copyText(state.selectedHook.final_text);
   $("#copyResultHookBtn").onclick = () => copyText((state.task?.bundle?.selected_hook_profile || state.selectedHook).final_text);
@@ -776,15 +832,26 @@ function bindEvents() {
   $("#fileInput").onchange = event => { const file = event.target.files[0]; if (file) importFile(file); event.target.value = ""; };
   $("#pasteBtn").onclick = async () => { try { $("#bodyInput").value = await navigator.clipboard.readText(); updateBodyCount(); syncProjectFromInputs(); } catch { toast("浏览器未开放剪贴板读取权限，请直接粘贴"); } };
   $("#sampleSelect").onchange = event => loadSample(event.target.value);
+  $("#sourceUrlInput").onblur=()=>validateSourceUrl(true);
+  $("#musicEnabledInput").onchange=event=>{state.musicEnabled=event.target.checked;saveState();};
+  $("#preflightMusicInput").onchange=event=>{state.musicEnabled=event.target.checked;$("#musicEnabledInput").checked=state.musicEnabled;saveState();};
+  $("#preflightBackBtn").onclick=()=>$("#preflightDialog").close();
+  $("#preflightConfirmBtn").onclick=()=>{const type=state.materialType;$("#preflightDialog").close();startGeneration(type);};
+  $("#serviceDetailsBtn").onclick=()=>$("#serviceDialog").showModal();
+  $("#deleteProjectBtn").onclick=()=>$("#deleteDialog").showModal();
+  $("#confirmDeleteBtn").onclick=deleteCurrentProject;
+  $("#regenerateAssetBtn").onclick=regenerateAsset;
+  $$('[data-close-dialog]').forEach(button=>button.onclick=()=>$("#"+button.dataset.closeDialog).close());
   $$('[data-action="go-input"]').forEach(button => button.onclick = event => { event.preventDefault(); showPage("input"); });
-  $$('[data-action="back-hooks"]').forEach(button => button.onclick = () => { state.hookDraft = state.selectedHook.final_text; state.hookDirty = true; showPage("hooks"); renderHooks(); });
+  $$('[data-action="back-hooks"]').forEach(button => button.onclick = () => $("#backHookDialog").showModal());
+  $("#confirmBackHookBtn").onclick=()=>{$("#backHookDialog").close();state.hookDraft=state.selectedHook.final_text;state.hookDirty=true;showPage("hooks");renderHooks();};
   $$('[data-action="go-action"]').forEach(button => button.onclick = () => showPage("action"));
   $$('[data-step]').forEach(button => button.onclick = () => { if (canVisit(button.dataset.step)) { if (button.dataset.step === "result") renderResult(); showPage(button.dataset.step); } });
 }
 
 window.NovelPromoWorkbench = {
   getState: () => clone(state),
-  simulateNextFailure(kind = "music") { simulatedFailure = kind; return `下一次生成将模拟 ${kind} 失败`; },
+  simulateNextFailure(kind = "music") { if(health?.mode!=="test")throw new Error("仅测试环境可用");simulatedFailure = kind; return `下一次生成将模拟 ${kind} 失败`; },
   reset() { state = blankState(); saveState(); hydrateInputs(); renderAll(); },
 };
 

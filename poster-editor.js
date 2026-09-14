@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "zhihu-story-workbench-v11";
+  const STORAGE_KEY = "zhihu-story-workbench-v12";
   const W = 540, H = 720;
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
@@ -50,7 +50,7 @@
     });
     const clean = (expanded.length ? expanded : rows).slice(0, 6);
     const stripped = clean.map(stripPunctuation).filter(Boolean);
-    return stripped.length ? stripped : ["输入一句能让人停下来的故事钩子"];
+    return stripped.length ? stripped : ["请输入传播文案"];
   }
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function snapshot(render = true) {
@@ -196,7 +196,7 @@
       const previewDataUrl = canvas.toDataURL({ format:"jpeg", quality:.86, multiplier:2, enableRetinaScaling:false });
       const backgroundId = design.backgroundId || asset.background_id;
       appState.backgroundId = backgroundId;
-      appState.posterDesign = { ...clone(design), styleName:current?.name || "宣传图定稿", backgroundId, previewDataUrl, savedAt:Date.now() };
+      appState.posterDesign = { ...clone(design), styleName:current?.name || "单图故事卡定稿", backgroundId, previewDataUrl, savedAt:Date.now() };
       appState.page = "background";
       const value = JSON.stringify(appState);
       try { sessionStorage.setItem(STORAGE_KEY,value); localStorage.setItem(STORAGE_KEY,value); }
@@ -216,10 +216,10 @@
     });
   }
   function boot() {
-    if (!window.fabric) return alert("宣传图编辑组件载入失败");
+    if (!window.fabric) return alert("单图故事卡编辑组件载入失败");
     task = getTask(); asset = task?.bundle?.image_assets?.[assetIndex];
-    if (!task || task.bundle?.selected_type !== "card" || !asset) { $("#saveState").textContent = "未找到可编辑的宣传图"; $("#saveBtn").disabled = true; return; }
-    $("#posterName").textContent = `《${task.bundle?.project_metadata?.title || "故事"}》宣传图`;
+    if (!task || task.bundle?.selected_type !== "card" || !asset) { $("#saveState").textContent = "未找到可编辑的单图故事卡"; $("#saveBtn").disabled = true; return; }
+    $("#posterName").textContent = `《${task.bundle?.project_metadata?.title || "故事"}》单图故事卡`;
     canvas = new fabric.Canvas("posterCanvas", { width:W, height:H, preserveObjectStacking:true, selection:false });
     canvas.on("object:modified", event => {
       const key = event.target?.designKey; if (!key) return;

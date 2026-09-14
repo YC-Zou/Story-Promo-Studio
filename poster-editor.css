@@ -81,3 +81,11 @@ button:disabled { cursor: not-allowed; opacity: .35; }
   .editor-shell { grid-template-columns: 270px minmax(510px,1fr); }.controls { padding: 13px; }
   .canvas-shell { --zoom: .68; }.style-card { min-height: 86px; }
 }
+
+/* Accessible type scale aligned with the main workbench */
+:root { --paper:#F6F7F9; --surface:#FFFFFF; --ink:#172033; --muted:#596579; --line:#D9DEE7; --blue:#056DE8; --green:#15704A; --amber:#A15C00; --red:#B42318; }
+body { font-size:14px; }
+.brand b { font-size:14px; }
+.brand small,.section-head small,.preview-head small,.save-state,.style-card small,.background-choice span,.preview-head > span,.stage-foot,.stage-foot button,.toast { font-size:12px; }
+.save-button,.return-button,.style-card strong,.apply-copy,.field-row label,.field-row select,.tone-field,.tone-field select,#linesInput { font-size:14px; }
+.preview-head b,.section-head b { font-size:16px; }

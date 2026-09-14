@@ -1,11 +1,12 @@
 {
   "name": "zhihu-story-promo-studio",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "An AI studio that turns Zhihu stories into hooks, comics, promo cards, and BGM.",
+  "description": "A privacy-aware studio for turning authorized Zhihu stories into reviewed promo copy, comics, story cards, and export-ready assets.",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node tests/smoke.mjs"
+    "test": "node tests/run-tests.mjs",
+    "test:external": "node tests/smoke.mjs"
   },
   "engines": {
     "node": ">=20"

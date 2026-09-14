@@ -9,6 +9,15 @@ $pidFile = Join-Path $runtimeDir "processes.json"
 $appUrl = "http://127.0.0.1:4173"
 $audioUrl = "http://127.0.0.1:7871"
 
+foreach ($name in @("OPENAI_NEXT_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL", "SEEDREAM_BASE_URL", "HOOK_MODEL", "SEEDREAM_MODEL", "APP_MODE")) {
+  if (-not [Environment]::GetEnvironmentVariable($name, "Process")) {
+    $saved = [Environment]::GetEnvironmentVariable($name, "User")
+    if ($saved) { [Environment]::SetEnvironmentVariable($name, $saved, "Process") }
+  }
+}
+if (-not $env:OPENAI_API_KEY -and $env:OPENAI_NEXT_API_KEY) { $env:OPENAI_API_KEY = $env:OPENAI_NEXT_API_KEY }
+$env:APP_MODE = if ($env:APP_MODE) { $env:APP_MODE } elseif ($env:OPENAI_API_KEY) { "live" } else { "demo" }
+
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
 function Write-Step([string]$message) {
@@ -46,7 +55,9 @@ if ($nodeMajor -lt 20) {
 Write-Host "  Node.js $nodeVersion" -ForegroundColor Green
 
 $audioProcess = $null
-if (Test-Url "$audioUrl/gradio_api/info") {
+if ($env:APP_MODE -eq "demo") {
+  Write-Host "  Demo mode: Stable Audio setup is skipped." -ForegroundColor Yellow
+} elseif (Test-Url "$audioUrl/gradio_api/info") {
   Write-Host "  Stable Audio is already available at $audioUrl" -ForegroundColor Green
 } else {
   Write-Step "Preparing Stable Audio 3"

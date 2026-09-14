@@ -17,9 +17,10 @@ $env:SEEDREAM_BASE_URL = if ($env:SEEDREAM_BASE_URL) { $env:SEEDREAM_BASE_URL } 
 $env:HOOK_MODEL = if ($env:HOOK_MODEL) { $env:HOOK_MODEL } else { "gpt-5.6-sol" }
 $env:SEEDREAM_MODEL = if ($env:SEEDREAM_MODEL) { $env:SEEDREAM_MODEL } else { "doubao-seedream-5-0-pro-260628" }
 $env:MUSIC_BASE_URL = if ($env:MUSIC_BASE_URL) { $env:MUSIC_BASE_URL } else { "http://127.0.0.1:7871" }
+$env:APP_MODE = if ($env:APP_MODE) { $env:APP_MODE } elseif ($env:OPENAI_API_KEY) { "live" } else { "demo" }
 
 if (-not $env:OPENAI_API_KEY) {
-  Write-Warning "No server-side API key found. Hook and Seedream generation will report UNCONFIGURED instead of returning mock output."
+  Write-Host "No API key found. Starting in demo mode with fixed authorized samples." -ForegroundColor Yellow
 }
 
 node (Join-Path $PSScriptRoot "server.mjs")

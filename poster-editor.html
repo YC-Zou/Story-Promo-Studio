@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>宣传图样式编辑 · 引力场</title>
-  <link rel="stylesheet" href="./poster-editor.css?v=2" />
+  <title>单图故事卡编辑 · 引力场</title>
+  <link rel="stylesheet" href="./poster-editor.css?v=3" />
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span>引</span><div><b>宣传图样式编辑</b><small>把故事钩子排成适合传播的画面</small></div></div>
+    <div class="brand"><span>引</span><div><b>单图故事卡编辑</b><small>把传播文案排成适合阅读的画面</small></div></div>
     <span class="save-state" id="saveState">尚未保存</span>
     <button class="save-button" id="saveBtn" type="button">保存</button>
     <button class="return-button" id="backBtn" type="button" disabled>返回</button>
@@ -39,7 +39,7 @@
     </aside>
 
     <section class="preview-area">
-      <div class="preview-head"><div><b id="posterName">宣传图预览</b><small id="styleDescription">适合短视频首屏与图文首图</small></div><span>1080 × 1440</span></div>
+      <div class="preview-head"><div><b id="posterName">单图故事卡预览</b><small id="styleDescription">适合短视频首屏与图文首图</small></div><span>1080 × 1440</span></div>
       <div class="stage">
         <div class="canvas-shell" id="canvasShell"><canvas id="posterCanvas" width="540" height="720"></canvas></div>
       </div>
@@ -49,6 +49,6 @@
 
   <div class="toast" id="editorToast" role="status" aria-live="polite"></div>
   <script src="./third_party/fabric/fabric.min.js"></script>
-  <script src="./poster-editor.js?v=5"></script>
+  <script src="./poster-editor.js?v=6"></script>
 </body>
 </html>
