@@ -336,21 +336,21 @@ function validateModelResult(result) {
     candidate.rank_score = round(2*s.factual_accuracy + 2*s.unique_point_coverage + 1.5*s.tone_match + 1.2*s.cold_reader_clarity + s.visual_specificity + s.curiosity + s.spoiler_control + .8*s.natural_language);
   }
   const dialogue=result.highlight_dialogue;
-  if(!dialogue||!["direct","group"].includes(dialogue.chat_type)||!String(dialogue.chat_title||"").trim()||!Array.isArray(dialogue.participants)||dialogue.participants.length<2||dialogue.participants.length>6||!Array.isArray(dialogue.messages)||dialogue.messages.length<5||dialogue.messages.length>10){
-    issues.push("highlight_dialogue 必须包含合法聊天类型、标题、2—6 位参与者和 5—10 个项目");
+  if(!dialogue||!Array.isArray(dialogue.participants)||dialogue.participants.length!==2||!Array.isArray(dialogue.messages)||dialogue.messages.length<5||dialogue.messages.length>8){
+    issues.push("highlight_dialogue 必须包含两位参与者和 5—8 条消息");
   }else{
     const participantIds=new Set(dialogue.participants.map(item=>item.id));
-    if(participantIds.size!==dialogue.participants.length||dialogue.chat_type==="direct"&&dialogue.participants.length!==2||dialogue.participants.some(item=>!String(item.display_name||"").trim()||!["left","right"].includes(item.side)))issues.push("highlight_dialogue 的参与者、昵称或位置非法");
+    const sides=new Set(dialogue.participants.map(item=>item.side));
+    if(participantIds.size!==2||!sides.has("left")||!sides.has("right")||dialogue.participants.some(item=>!String(item.display_name||"").trim()))issues.push("highlight_dialogue 的参与者或左右位置非法");
     const speaking=new Set();
     dialogue.messages.forEach((message,index)=>{
-      message.message_id=`M${index+1}`;message.type=message.type==="overlay"?"overlay":"text";message.text=String(message.text||"").replace(/^[「『“\"]+|[」』”\"]+$/g,"").trim();
-      const speakerValid=message.type==="overlay"?message.speaker_id==null:participantIds.has(message.speaker_id);
-      if(!speakerValid||nonWhitespaceLength(message.text)<2||nonWhitespaceLength(message.text)>42||!message.source_refs?.length||!message.source_refs.every(ref=>evidenceIds.has(ref))||!["verbatim","lightly_adapted"].includes(message.adaptation))issues.push(`highlight_dialogue 第 ${index+1} 个项目非法`);
-      if(message.type==="text")speaking.add(message.speaker_id);message.sticker_hint=String(message.sticker_hint||"").slice(0,12);
+      message.message_id=`M${index+1}`;message.type="text";message.text=String(message.text||"").replace(/^[「『“\"]+|[」』”\"]+$/g,"").trim();
+      if(!participantIds.has(message.speaker_id)||nonWhitespaceLength(message.text)<2||nonWhitespaceLength(message.text)>34||!message.source_refs?.length||!message.source_refs.every(ref=>evidenceIds.has(ref))||!["verbatim","lightly_adapted"].includes(message.adaptation))issues.push(`highlight_dialogue 第 ${index+1} 条消息非法`);
+      speaking.add(message.speaker_id);message.sticker_hint=String(message.sticker_hint||"").slice(0,12);
     });
-    if(speaking.size<2)issues.push("highlight_dialogue 至少需要两位实际发言者");
+    if(speaking.size!==2)issues.push("highlight_dialogue 必须让两位参与者都发言");
     dialogue.source_refs=[...new Set(dialogue.messages.flatMap(message=>message.source_refs||[]))];
-    dialogue.spoiler_risk="low";dialogue.target_duration_seconds=Math.min(25,Math.max(10,Math.round(4+dialogue.messages.reduce((sum,message)=>sum+(message.type==="overlay"?Math.max(1.8,nonWhitespaceLength(message.text)/9):Math.max(1.2,nonWhitespaceLength(message.text)/11)),0))));
+    dialogue.spoiler_risk="low";dialogue.target_duration_seconds=15;
   }
   if (issues.length) throw error("模型结构校验失败", 502, issues);
   const best = result.candidates.find(item => item.candidate_id === result.best_candidate_id) || [...result.candidates].sort((a,b)=>b.rank_score-a.rank_score)[0];
@@ -379,30 +379,6 @@ async function analyzeProject(input) {
   projects.set(id, { input:{...input,body:String(input.body)}, analysis: result, selectedHook: null, bundles: [], created_at:now, updated_at:now, expires_at:now+retentionMs }); await persistState(); return result;
 }
 
-function makeDemoHighlightDialogue(input,evidence_pool){
-  const addEvidence=source=>{
-    const clean=String(source||"").replace(/^[「『“【\[]+|[」』”】\]]+$/g,"").trim(),needle=[...clean].slice(0,10).join("");
-    let row=evidence_pool.find(item=>item.quote.includes(needle)||clean.includes([...item.quote].slice(0,10).join("")));
-    if(!row){row={ref_id:`E${String(evidence_pool.length+1).padStart(2,"0")}`,quote:[...clean].slice(0,25).join("")};evidence_pool.push(row);}return row.ref_id;
-  };
-  const body=String(input.body),lines=body.split(/\r?\n/),groupRows=[];let cursor=0,lastSpeaker="";
-  for(const sourceLine of lines){const line=sourceLine.trim(),offset=cursor;cursor+=sourceLine.length+1;let match=line.match(/^([^：:【\]]{1,24})[：:]\s*【([^】]{2,80})】[。.]?$/u);if(match){lastSpeaker=match[1].trim();groupRows.push({speaker:lastSpeaker,text:match[2].trim(),index:offset});continue;}match=line.match(/^【([^：:】]{1,24})[：:]\s*([^】]{2,80})[】」]?$/u);if(match){lastSpeaker=match[1].trim();groupRows.push({speaker:lastSpeaker,text:match[2].trim(),index:offset});continue;}match=line.match(/^【([^】]{4,80})】$/u);if(match&&lastSpeaker&&!/欢迎|玩家|初始|现存活|系统|弹幕/u.test(match[1]))groupRows.push({speaker:lastSpeaker,text:match[1].trim(),index:offset});}
-  let chat_type="direct",chat_title="故事对话",participants=[],raw=[];
-  if(groupRows.length>=5&&new Set(groupRows.map(item=>item.speaker)).size>=2){
-    let chosen=groupRows.slice(0,9);for(let start=0;start<groupRows.length;start++){const dense=groupRows.slice(start,start+9).filter(item=>item.index-groupRows[start].index<=1800);if(dense.length>=5&&new Set(dense.map(item=>item.speaker)).size>=2){chosen=dense;break;}}
-    const names=[...new Set(chosen.map(item=>item.speaker))].slice(0,6);chat_type="group";const before=body.slice(Math.max(0,chosen[0].index-350),chosen[0].index),titles=[...before.matchAll(/([\p{Script=Han}A-Za-z0-9 ]{1,10}(?:群聊|小群|群))/gu)];chat_title=titles.at(-1)?.[1]?.trim()||"朋友群聊";participants=names.map((name,index)=>({id:`p${index+1}`,display_name:name,side:"left",is_self:name==="我"}));raw=chosen.filter(item=>names.includes(item.speaker)).map(item=>[`p${names.indexOf(item.speaker)+1}`,item.text,item.text,"text","verbatim",item.index]);const context=body.slice(chosen[0].index,Math.min(body.length,chosen.at(-1).index+700)),identity=context.match(/([\p{Script=Han}A-Za-z0-9]{2,8})，我们公司(?:的)?(总裁|老板)/u);if(identity&&raw.length<10)raw.splice(Math.min(4,raw.length),0,[null,`${identity[1]}是我们公司${identity[2]}？！`,identity[0],"overlay","lightly_adapted",chosen[0].index+(identity.index||0)]);
-  }else{
-    const speechVerb=/(?:说|问|答|喊|叫|骂|笑|道|念叨|追问|大叫|挤出(?:来)?一句|开口|回复)[：:]?\s*$/u,quoted=[...body.matchAll(/[「“]([^」”\r\n]{2,42})[」”]/gu)].map((match,index)=>{const prefix=body.slice(Math.max(0,match.index-110),match.index).split(/[。！？!?\n]/u).at(-1)||"",self=index===0&&match.index===0||/我[^。！？!?\n]{0,48}(?:说|问|答|喊|叫|念叨|追问|大叫|挤出|开口|回复)/u.test(prefix);if(index>0&&!speechVerb.test(prefix)&&!/^[：:]?\s*$/u.test(prefix))return null;return {text:match[1].trim(),speaker:self?"p2":"p1",index:match.index,end:match.index+match[0].length};}).filter(Boolean);
-    let chosen=[],bestScore=-Infinity;for(let start=0;start+5<=quoted.length;start++){const window=quoted.slice(start,start+5),speakers=new Set(window.map(item=>item.speaker));if(speakers.size<2)continue;const transitions=window.slice(1).filter((item,index)=>item.speaker!==window[index].speaker).length,span=window.at(-1).index-window[0].index,score=transitions*40-span/8;if(score>bestScore){bestScore=score;chosen=window;}}if(!chosen.length)chosen=quoted.slice(0,Math.min(8,quoted.length));while(chosen.length<5)chosen.push({text:evidence_pool[chosen.length%evidence_pool.length].quote,speaker:chosen.length%2?"p2":"p1",index:0});chosen.forEach((item,index)=>{const cue=body.slice(index?chosen[index-1].end||Math.max(0,item.index-140):Math.max(0,item.index-140),item.index);if(/我[\s\S]{0,90}(?:说|问|答|喊|叫|念叨|追问|大叫|挤出|开口|回复)[^。！？!?]{0,12}[：:]?\s*$/u.test(cue))item.speaker="p2";else if(/(?:他|她)[\s\S]{0,90}(?:说|问|答|喊|叫|怒吼|笑|抛媚眼)[^。！？!?]{0,12}[：:]?\s*$/u.test(cue))item.speaker="p1";});
-    const nearby=body.slice(Math.max(0,(chosen[0]?.index||0)-240),Math.min(body.length,(chosen.at(-1)?.index||0)+1500)),otherName=nearby.match(/名叫([\p{Script=Han}A-Za-z0-9]{2,8})/u)?.[1]||nearby.match(/这个([\p{Script=Han}]{2,4})的家伙/u)?.[1]||nearby.match(/([\p{Script=Han}]{2,4})(?:露出了|瞪大了|冷笑|说道|说：)/u)?.[1]||"对方";chat_title=otherName;participants=[{id:"p1",display_name:otherName,side:"left",is_self:false},{id:"p2",display_name:"我",side:"right",is_self:true}];raw=chosen.map(item=>[item.speaker,item.text,item.text,"text","verbatim",item.index]);
-    const action=[...nearby.matchAll(/([^。！？\n]{0,22}(?:掐住|眼冒金星|发凉|颤抖|喘不过气|撞上)[^。！？\n]{0,22})[。！？]/gu)][0];if(action){const insertAt=Math.max(1,raw.findIndex(item=>(item[5]||0)>(chosen[0].index+(action.index||0))));raw.splice(insertAt<1?2:insertAt,0,[null,action[1].trim(),action[1].trim(),"overlay","lightly_adapted",chosen[0].index+(action.index||0)]);}
-  }
-  const textRows=raw.filter(item=>(item[3]||"text")==="text");if(chat_type==="direct"&&new Set(textRows.map(item=>item[0])).size<2&&textRows.length>1){textRows[0][0]="p1";textRows.at(-1)[0]="p2";}
-  const messages=raw.map((item,index)=>({message_id:`M${index+1}`,speaker_id:item[0],type:item[3]||"text",text:item[1],source_refs:[addEvidence(item[2]||item[1])],adaptation:item[4]||"verbatim",sticker_hint:""}));
-  const target_duration_seconds=Math.min(25,Math.max(10,Math.round(4+messages.reduce((sum,message)=>sum+(message.type==="overlay"?Math.max(1.8,nonWhitespaceLength(message.text)/9):Math.max(1.2,nonWhitespaceLength(message.text)/11)),0))));
-  return {title:"精华对话",chat_type,chat_title,scene_summary:chat_type==="group"?"群聊中身份反差突然暴露":"人物冲突最紧张的一段对话",participants,messages,source_refs:[...new Set(messages.flatMap(item=>item.source_refs))],spoiler_risk:"low",target_duration_seconds};
-}
-
 function makeDemoAnalysis(input) {
   const sentences=String(input.body).split(/\n+|(?<=[。！？!?])/u).map(value=>value.trim()).filter(value=>nonWhitespaceLength(value)>=6).map(value=>[...value].slice(0,30).join(""));
   const picks=[0,Math.floor(sentences.length/3),Math.floor(sentences.length*2/3)];
@@ -414,7 +390,29 @@ function makeDemoAnalysis(input) {
     return {candidate_id:`C${index+1}`,hook_type,strategy:strategies[index],ending_type:"reveal",covers_unique_selling_point:true,lines,rendered_text:renderLines(lines),recommendation_reason:["从人物关系切入，冲突清楚","先交代异常设定，悬念集中","停在关键行动前，适合继续阅读"][index],recommended_material:index===1?"card":"comic",scores:{factual_accuracy:9,unique_point_coverage:8.5,cold_reader_clarity:8.5,tone_match:8.5,visual_specificity:8.5,curiosity:8.5,spoiler_control:9,natural_language:8.5},rank_score:85-index};
   });
   const allTypes=["relationship_tension","abnormal_setting","identity_contrast","crisis_choice","emotional_scene"];
-  const highlight_dialogue=makeDemoHighlightDialogue(input,evidence_pool);
+  const body=String(input.body),speechVerb=/(?:说|问|答|喊|叫|骂|笑|道|念叨|追问|大叫)[：:]?\s*$/u;
+  const quoted=[...body.matchAll(/[「“]([^」”\r\n]{2,34})[」”]/gu)].map(match=>{
+    const prefix=body.slice(Math.max(0,match.index-70),match.index).split(/[。！？!?\n]/u).at(-1)||"";
+    if(!speechVerb.test(prefix))return null;
+    return {text:match[1].trim(),speaker:/我[^。！？!?\n]{0,28}(?:说|问|答|喊|叫|念叨|追问|大叫)/u.test(prefix)?"我":"对方",index:match.index};
+  }).filter(Boolean);
+  let chosen=[],bestScore=-Infinity;
+  for(const size of [5])for(let start=0;start+size<=quoted.length;start++){
+    const window=quoted.slice(start,start+size),speakers=new Set(window.map(item=>item.speaker));if(speakers.size<2)continue;
+    const transitions=window.slice(1).filter((item,index)=>item.speaker!==window[index].speaker).length,span=window.at(-1).index-window[0].index,score=transitions*40-span/8;
+    if(score>bestScore){bestScore=score;chosen=window;}
+  }
+  if(!chosen.length)chosen=quoted.slice(0,Math.min(8,quoted.length));
+  while(chosen.length<5)chosen.push({text:evidence_pool[chosen.length%evidence_pool.length].quote,speaker:chosen.length%2?"我":"对方"});
+  const speakerNames=["对方","我"];
+  const participants=[{id:"p1",display_name:speakerNames[0],side:"left"},{id:"p2",display_name:speakerNames[1],side:"right"}];
+  const messages=chosen.slice(0,8).map((item,index)=>{
+    let evidence=evidence_pool.find(row=>row.quote.includes(item.text.slice(0,10))||item.text.includes(row.quote.slice(0,10)));
+    if(!evidence){evidence={ref_id:`E${String(evidence_pool.length+1).padStart(2,"0")}`,quote:[...item.text].slice(0,25).join("")};evidence_pool.push(evidence);}
+    const detectedIndex=speakerNames.indexOf(item.speaker),speakerIndex=detectedIndex>=0?detectedIndex:index%2;
+    return {message_id:`M${index+1}`,speaker_id:`p${speakerIndex+1}`,type:"text",text:item.text.slice(0,34),source_refs:[evidence.ref_id],adaptation:"verbatim",sticker_hint:""};
+  });
+  const highlight_dialogue={title:"精华对话",scene_summary:"故事中关系与冲突最集中的一段对话",participants,messages,source_refs:[...new Set(messages.flatMap(item=>item.source_refs))],spoiler_risk:"low",target_duration_seconds:15};
   return {story_profile:{visual_anchors:evidence_pool.slice(0,4).map(item=>item.quote)},content_analysis:{unique_selling_point:"授权样例中的核心冲突",spoiler_boundary:"不提前揭示故事结局",evidence_pool,tone_profile:"suspense_dark",tone_profile_label:"悬念"},hook_type_scores:allTypes.map(hook_type=>({hook_type,type_fit_score:8,material_strength:8,type_selection_score:8})),candidate_plan:candidates.map(({candidate_id,hook_type,strategy})=>({candidate_id,hook_type,strategy})),candidates,highlight_dialogue,best_candidate_id:"C1",best_hook:{text:candidates[0].rendered_text}};
 }
 

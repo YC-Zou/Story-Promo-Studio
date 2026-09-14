@@ -25,12 +25,12 @@ assert.equal(analyzed.hook_type_scores.length, 5);
 assert.equal(analyzed.candidates.length, 3);
 assert.ok(analyzed.candidates.every(item => item.lines.length >= 4 && item.lines.length <= 10));
 assert.ok(analyzed.content_analysis.evidence_pool.every(item => [...item.quote.replace(/\s/g,"")].length <= 25));
-assert.ok(analyzed.highlight_dialogue.participants.length >= 2 && analyzed.highlight_dialogue.participants.length <= 6);
-assert.ok(analyzed.highlight_dialogue.messages.length >= 5 && analyzed.highlight_dialogue.messages.length <= 10);
-assert.ok(analyzed.highlight_dialogue.target_duration_seconds >= 10 && analyzed.highlight_dialogue.target_duration_seconds <= 25);
-const dialogueParticipantIds=new Set(analyzed.highlight_dialogue.participants.map(item=>item.id));
-assert.ok(analyzed.highlight_dialogue.messages.every(item => ["text","overlay"].includes(item.type) && item.source_refs.length && [...item.text.replace(/\s/g,"")].length <= 42 && (item.type === "overlay" ? item.speaker_id === null : dialogueParticipantIds.has(item.speaker_id))));
-assert.ok(new Set(analyzed.highlight_dialogue.messages.filter(item=>item.type==="text").map(item => item.speaker_id)).size >= 2);
+assert.equal(analyzed.highlight_dialogue.participants.length, 2);
+assert.ok(analyzed.highlight_dialogue.messages.length >= 5 && analyzed.highlight_dialogue.messages.length <= 8);
+assert.equal(analyzed.highlight_dialogue.target_duration_seconds, 15);
+assert.equal(new Set(analyzed.highlight_dialogue.participants.map(item => item.side)).size, 2);
+assert.equal(new Set(analyzed.highlight_dialogue.messages.map(item => item.speaker_id)).size, 2);
+assert.ok(analyzed.highlight_dialogue.messages.every(item => item.type === "text" && item.source_refs.length && [...item.text.replace(/\s/g,"")].length <= 34));
 
 const id = analyzed.story_profile.project_id;
 const restoredProject=await request(`/api/projects/${id}`);
