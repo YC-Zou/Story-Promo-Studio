@@ -313,16 +313,11 @@ async function analyzeProject(input) {
   const count = nonWhitespaceLength(input.body); if (!count) throw error("缺少完整正文"); if (count > 50000) throw error(`正文超出 ${count - 50000} 个字符`, 413);
   if (!textApiKey) throw error("真实钩子模型未配置，已阻止返回模拟候选", 503);
   const template = await readFile(resolve(root, "docs", "product", "prompts", "hook-generation-v1.md"), "utf8");
-  let initialResult;
-  for(let attempt=0;attempt<2;attempt++){
-    initialResult=await callChat(`${renderPrompt(template,input)}\n\n服务端强制要求：candidate_plan 与 candidates 必须各有且只有 3 项，三个 hook_type 和三个 strategy 分别互不重复。${attempt ? "上一次返回数量不正确，这是最后一次完整重试。" : ""}`);
-    if(initialResult?.candidate_plan?.length===3&&initialResult?.candidates?.length===3)break;
-  }
-  if(initialResult?.candidate_plan?.length!==3||initialResult?.candidates?.length!==3)throw error("钩子模型连续两次未返回三个候选",502);
-  let modelResult=validateModelResult(await repairLiveCandidates(initialResult));
-  modelResult=validateModelResult(await auditAndRepairCandidates(modelResult,input));
+  const initialResult=await callChat(`${renderPrompt(template,input)}\n\n服务端强制要求：candidate_plan 与 candidates 必须各有且只有 3 项，三个 hook_type 和三个 strategy 分别互不重复。一次性完成全部候选，不执行后续模型复审或重写。`);
+  if(initialResult?.candidate_plan?.length!==3||initialResult?.candidates?.length!==3)throw error("钩子模型未一次性返回三个候选，请重新分析",502);
+  const modelResult=validateModelResult(initialResult);
   const id = randomUUID(), category = inferCategory(input.title, input.labels, input.body);
-  const result = { ...modelResult, story_profile: { ...(modelResult.story_profile || {}), project_id: id, document_version: 1, primary_category: category, primary_category_label: CATEGORIES[category][0] }, adapter_mode: "live_model" };
+  const result = { ...modelResult, quality_control:{ mode:"single_generation_call", extra_model_calls:0, note:"候选未执行生成后的模型复审或自动重写" }, story_profile: { ...(modelResult.story_profile || {}), project_id: id, document_version: 1, primary_category: category, primary_category_label: CATEGORIES[category][0] }, adapter_mode: "live_model" };
   projects.set(id, { input, analysis: result, selectedHook: null, bundles: [] }); await persistState(); return result;
 }
 
@@ -369,8 +364,17 @@ const CATEGORY_GENRES = {
   horror_rules: ["thriller", "folk-tales", "suspense"],
   fantasy_highconcept: ["high-concept", "fantasy", "science-fiction"],
 };
-const GENRE_LABELS = { romance:"言情", marriage:"婚恋", "pure-love":"纯爱", "historical-romance":"演义", "realistic-emotion":"现实情感", "social-life":"世情", "political-intrigue":"权谋", suspense:"悬疑", "folk-tales":"民间奇闻", thriller:"惊悚", "high-concept":"脑洞", fantasy:"玄幻奇幻", "science-fiction":"科幻" };
+const GENRE_LABELS = { romance:"言情", wuxia:"武侠", "historical-romance":"演义", "social-life":"世情", "realistic-emotion":"现实情感", "political-intrigue":"权谋", "high-concept":"脑洞", marriage:"婚恋", suspense:"悬疑", fantasy:"玄幻奇幻", "pure-love":"纯爱", thriller:"惊悚", "folk-tales":"民间奇闻", esports:"电竞", "science-fiction":"科幻", "fan-fiction":"同人", abo:"ABO" };
 const ERA_LABELS = { ancient:"古代", modern:"现代", history:"历史", future:"未来", "alternate-world":"架空", apocalypse:"末日", "republic-era":"民国", period:"年代" };
+const GENRE_ORDER = ["romance","wuxia","historical-romance","social-life","realistic-emotion","political-intrigue","high-concept","marriage","suspense","fantasy","pure-love","thriller","folk-tales","esports","science-fiction","fan-fiction","abo"];
+const ERA_ORDER = ["ancient","modern","history","future","alternate-world","apocalypse","republic-era","period"];
+const COMIC_STYLES = {
+  "polished-campus": { label:"精致校园", prompt:"精致半写实青春校园条漫，人物五官细腻、明亮电影光、干净高完成度数码绘画" },
+  "clear-anime": { label:"清透日漫", prompt:"清透日系漫画，轻盈明确线稿、淡彩上色、富有动势的斜切分格与明快空气感" },
+  "watercolor-youth": { label:"水彩青春", prompt:"纸张肌理水彩青春漫画，柔和蓝灰淡彩、留白充足、抒情而克制" },
+  "cinematic-noir": { label:"冷调电影", prompt:"冷调电影感写实漫画，低饱和蓝灰、戏剧性镜头、细腻情绪与可信环境光" },
+  "dark-mystery": { label:"暗黑怪谈", prompt:"暗黑怪谈漫画，深色粗线与低明度场景、压迫悬念、诡异但不血腥" },
+};
 function inferEra(input = {}, category = "") {
   const text = `${input.title || ""} ${(input.labels || []).join(" ")} ${String(input.body || "").slice(0, 2500)}`;
   const rules = [["republic-era",/民国/],["apocalypse",/末日|丧尸|废土/],["future",/未来|星际|太空|赛博/],["history",/历史|史实/],["period",/年代文|知青|七十年代|八十年代|九十年代/],["ancient",/古代|古风|宫廷|侯府|王爷|江湖|武侠/],["alternate-world",/架空|异世界|修仙|玄幻/],["modern",/现代|都市|校园|电竞|公司|手机/]];
@@ -381,14 +385,13 @@ function backgroundPresets(category, input = {}) {
   const genres = CATEGORY_GENRES[category] || ["realistic-emotion", "social-life", "high-concept"];
   const era = inferEra(input, category);
   const definitions = [
-    { key:`genre-${genres[0]}`, name:`${GENRE_LABELS[genres[0]] || config[0]}题材`, dimension:"题材", label:GENRE_LABELS[genres[0]] || config[0] },
-    { key:`era-${era}`, name:`${ERA_LABELS[era]}时空`, dimension:"时空", label:ERA_LABELS[era] },
-    { key:`genre-${genres[1]}`, name:`${GENRE_LABELS[genres[1]] || config[0]}氛围`, dimension:"辅助题材", label:GENRE_LABELS[genres[1]] || config[0] },
-  ];
-  return definitions.map((definition, index) => {
-    const colors = index === 0 ? config[1] : index === 1 ? [config[1][1], "#18212a"] : ["#101820", config[1][0]];
+    ...GENRE_ORDER.map((key,index)=>({ key:`genre-${key}`, name:GENRE_LABELS[key], dimension:"genre", dimension_label:"题材", label:GENRE_LABELS[key], order:index })),
+    ...ERA_ORDER.map((key,index)=>({ key:`era-${key}`, name:ERA_LABELS[key], dimension:"era", dimension_label:"时空", label:ERA_LABELS[key], order:index })),
+  ].map(definition=>({ ...definition, recommended:definition.dimension === "genre" ? genres.includes(definition.key.slice(6)) : definition.key === `era-${era}` }));
+  return definitions.sort((a,b)=>Number(b.recommended)-Number(a.recommended)||a.dimension.localeCompare(b.dimension)||a.order-b.order).map((definition, index) => {
+    const colors = index % 3 === 0 ? config[1] : index % 3 === 1 ? [config[1][1], "#18212a"] : ["#101820", config[1][0]];
     const assetUrl = `/assets/preset-backgrounds/library/${definition.key}.jpg`;
-    return { id: `${category}-${index + 1}`, category_id: category, era_id:era, preset_key:definition.key, name:definition.name, description: `${definition.dimension}匹配：${definition.label} · Seedream 实际生成`, asset_url: assetUrl, thumbnail_url: assetUrl, safe_text_area: { x: .12, y: .08, width: .76, height: .62 }, text_alignment: "center", default_text_color: "#ffffff", overlay_color: "#05080c", overlay_opacity: .42, source_and_license: "Seedream 生成的项目自有预设底图；请求禁用水印", colors, css_background: `linear-gradient(145deg,${colors[0]},${colors[1]})` };
+    return { id: definition.key, category_id: category, era_id:era, preset_key:definition.key, name:definition.name, dimension:definition.dimension, recommended:definition.recommended, description: `${definition.dimension_label}：${definition.label}${definition.recommended ? " · AI 识别相关" : ""}`, asset_url: assetUrl, thumbnail_url: assetUrl, safe_text_area: { x: .12, y: .08, width: .76, height: .62 }, text_alignment: "center", default_text_color: "#ffffff", overlay_color: "#05080c", overlay_opacity: .42, source_and_license: "Seedream 生成的项目自有预设底图；请求禁用水印", colors, css_background: `linear-gradient(145deg,${colors[0]},${colors[1]})` };
   });
 }
 async function buildMusicProfile(project, type) {
@@ -403,23 +406,24 @@ async function buildMusicProfile(project, type) {
   if(!negative)throw error("BGM 提示词模型缺少 negative_prompt",502);
   return { preset_id:`ai_${hook.hook_type}`, preset_label:"AI 简洁配乐", source_tag_ids:[hook.hook_type,hook.primary_emotion,category,type], prompt:positive, negative_prompt:negative, duration:clamp(generated.duration_seconds||20,15,30), cfg:clamp(generated.cfg||2.5,0,10), steps:Math.round(clamp(generated.steps||8,1,16)), seed:Math.floor(Math.random()*1e9), prompt_model:hookModel, prompt_generation_mode:"live_model", provider:"Stable Audio 3 Small Music" };
 }
-function planAssets(project, type, backgroundId) {
+function planAssets(project, type, backgroundId, comicStyleId) {
   const selectedLines = project.selectedHook.selected_lines, presets = backgroundPresets(project.analysis.story_profile.primary_category, project.input), selectedBg = presets.find(item => item.id === backgroundId) || presets[0];
   if (type === "card") return [{ id: "card", file_name: "card.png", text: groupSelectedLines(project.selectedHook.selected_lines).join("\n"), colors: selectedBg.colors, css_background: selectedBg.css_background, background_id: selectedBg.id, background_asset_url:selectedBg.asset_url, width: 1080, height: 1440, status:"queued", panel_count:1, show_attribution:true, adapter_mode:"fixed_background_canvas" }];
   let comicLines=selectedLines.map(line=>({...line}));
   if(comicLines.length===1){const parts=splitPreservingText(comicLines[0].text);if(parts.length>1)comicLines=parts.map(text=>({...comicLines[0],text}));}
-  const pageCount = Math.min(8, Math.max(2, Math.ceil(comicLines.length / 4))), style = project.analysis.story_profile.primary_category;
+  const pageCount = Math.min(8, Math.max(2, Math.ceil(comicLines.length / 4))), style = COMIC_STYLES[comicStyleId] || COMIC_STYLES["polished-campus"];
   let cursor=0;
   return Array.from({ length: pageCount }, (_, index) => {
     const remaining=comicLines.length-cursor, pagesLeft=pageCount-index, take=Math.min(4,Math.max(1,Math.ceil(remaining/pagesLeft))), chunk=comicLines.slice(cursor,cursor+take); cursor+=take;
-    const bg=presets[index%3], panels=chunk.map((line,panelIndex)=>({panel_index:panelIndex+1,type:line.type,text:line.text,rendered_text:renderSelectedLine(line),source_refs:line.source_refs||[]}));
-    return { id:`page-${index+1}`,file_name:`${String(index+1).padStart(2,"0")}.png`,text:panels.map(panel=>panel.rendered_text).join("\n"),panels,layout:"vertical_storyboard",colors:bg.colors,css_background:bg.css_background,width:1080,height:1440,status:"queued",panel_count:panels.length,show_attribution:index===pageCount-1,visual_preset_id:{modern_romance:"urban_korean",ancient_romance:"ornate_ancient",youth_campus:"clear_anime",realistic_emotion:"minimal_flat",revenge_growth:"retro_hk",mystery_detective:"mono_mystery",horror_rules:"ink_horror",fantasy_highconcept:"storybook_pencil"}[style],adapter_mode:imageApiKey?"seedream":"unconfigured"};
+    const bg=presets[index%presets.length], panels=chunk.map((line,panelIndex)=>({panel_index:panelIndex+1,type:line.type,text:line.text,rendered_text:renderSelectedLine(line),source_refs:line.source_refs||[]}));
+    return { id:`page-${index+1}`,file_name:`${String(index+1).padStart(2,"0")}.png`,text:panels.map(panel=>panel.rendered_text).join("\n"),panels,layout:"vertical_storyboard",colors:bg.colors,css_background:bg.css_background,width:1080,height:1440,status:"queued",panel_count:panels.length,show_attribution:index===pageCount-1,visual_preset_id:comicStyleId,visual_style_label:style.label,visual_style_prompt:style.prompt,adapter_mode:imageApiKey?"seedream":"unconfigured"};
   });
 }
-async function buildVisualContext(project, type) {
+async function buildVisualContext(project, type, comicStyleId) {
   const evidence = project.analysis.content_analysis?.evidence_pool || [];
   const fallbackAnchors = evidence.slice(0, 5).map(item => item.quote);
-  const renderStyle="统一的写实电影感半写实数字漫画插画：真人比例、细腻数字绘画笔触、可信面部与电影光影；明确不是实拍照片、不是二次元赛璐璐、不是3D渲染。所有页必须使用完全相同的绘画媒介、写实程度、线条质感、色彩分级和光影方式";
+  const selectedStyle=COMIC_STYLES[comicStyleId] || COMIC_STYLES["polished-campus"];
+  const renderStyle=`${selectedStyle.prompt}。所有页必须使用完全相同的绘画媒介、写实程度、线条质感、色彩分级和光影方式`;
   const context = { primary_category:project.analysis.story_profile.primary_category, visual_anchors:project.analysis.story_profile.visual_anchors?.length ? project.analysis.story_profile.visual_anchors : fallbackAnchors, render_style:renderStyle, continuity_rule:"同一人物的年龄、脸型、发型、服装颜色和关键物件跨页保持完全一致；不得在摄影、动漫、3D或不同画风之间切换" };
   if (type !== "comic") return context;
   const prompt = `你是漫画角色连续性设计师。根据正文、已冻结钩子和证据建立一个制作专用视觉圣经，只返回 JSON 对象。不得改变人物关系或剧情；正文未说明的外观可做克制设计，但必须固定后供每页复用。结构：{setting:string,palette:string,characters:[{role:string,name_or_label:string,age:string,gender_presentation:string,face:string,hair:string,clothing:string,immutable_traits:string[]}],recurring_objects:string[],negative_constraints:string[]}。characters 只保留钩子中实际出现或必需的 1—4 人，每项描述具体、简短、可直接用于中文生图提示词；同一角色的所有固定特征不得互相矛盾。\n作品：${project.input.title}\n标签：${(project.input.labels || []).join("、")}\n冻结钩子：${project.selectedHook.final_text}\n证据：${JSON.stringify(evidence)}\n正文前段：${String(project.input.body).slice(0, 6000)}`;
@@ -433,11 +437,10 @@ async function createTask(project, selection) {
   const activeTask = project.bundles.map(id => tasks.get(id)).find(item => item && ["queued","running"].includes(item.status));
   if (activeTask) throw error("已有生成任务进行中，请勿重复提交", 409);
   if (!['comic','card'].includes(selection.selected_type)) throw error("selected_type 必须是 comic 或 card");
-  if (selection.selected_type === "card" && !backgroundPresets(project.analysis.story_profile.primary_category, project.input).some(item => item.id === selection.background_id)) throw error("B 类底图缺失或不属于当前主类别", 409);
-  const visualContext = await buildVisualContext(project, selection.selected_type);
-  const musicProfile=await buildMusicProfile(project,selection.selected_type);
-  const id = randomUUID(), now = Date.now(), bundle = { selected_type: selection.selected_type, project_metadata:{ title:project.input.title, author:project.input.author, source_url:project.input.source_url }, selected_hook_profile:JSON.parse(JSON.stringify(project.selectedHook)), visual_context:visualContext, image_assets: planAssets(project, selection.selected_type, selection.background_id), music_profile:musicProfile, audio_url: null };
-  const task = { id, project_id: project.analysis.story_profile.project_id, status: "queued", progress: 0, message: "冻结钩子、视觉类型与系统参数", created_at: now, updated_at: now, attempt: 1, simulate_failure: selection.simulate_failure || "", subtasks: [{ id: "material", label: selection.selected_type === "comic" ? "漫画图组" : "单图合成", status: "queued", retryable: true, message: "等待生成" }, { id: "music", label: "BGM", status: "queued", retryable: true, message: "等待本机音乐服务" }], bundle };
+  if (selection.selected_type === "card" && !backgroundPresets(project.analysis.story_profile.primary_category, project.input).some(item => item.id === selection.background_id)) throw error("所选底图不存在", 409);
+  if (selection.selected_type === "comic" && !COMIC_STYLES[selection.comic_style]) throw error("请选择有效漫画画风", 409);
+  const id = randomUUID(), now = Date.now(), bundle = { selected_type: selection.selected_type, comic_style:selection.selected_type === "comic" ? { id:selection.comic_style, ...COMIC_STYLES[selection.comic_style] } : null, project_metadata:{ title:project.input.title, author:project.input.author, source_url:project.input.source_url }, selected_hook_profile:JSON.parse(JSON.stringify(project.selectedHook)), visual_context:null, image_assets: planAssets(project, selection.selected_type, selection.background_id, selection.comic_style), music_profile:null, audio_url: null };
+  const task = { id, project_id: project.analysis.story_profile.project_id, status: "queued", progress: 3, message: "任务已创建，正在准备视觉与音乐提示词", created_at: now, updated_at: now, attempt: 1, simulate_failure: selection.simulate_failure || "", subtasks: [{ id: "material", label: selection.selected_type === "comic" ? "漫画图组" : "单图合成", status: "queued", retryable: true, message: "正在准备视觉上下文" }, { id: "music", label: "BGM", status: "queued", retryable: true, message: "正在准备音乐提示词" }], bundle };
   tasks.set(id, task); project.bundles.push(id); await persistState(); startTask(task); return publicTask(task);
 }
 
@@ -463,18 +466,35 @@ async function regenerateOne(project, body) {
   return { candidate:replacement, best_candidate_id:project.analysis.best_candidate_id };
 }
 async function startTask(task, retryOnly = false) {
-  task.status = "running"; task.progress = retryOnly ? 70 : 8; task.message = retryOnly ? "仅重试失败子任务" : "图片与 BGM 正在并行生成"; task.updated_at = Date.now();
+  task.status = "running"; task.progress = retryOnly ? 70 : 8; task.message = retryOnly ? "仅重试失败子任务" : "正在并行准备图片与 BGM"; task.updated_at = Date.now();
   const material = task.subtasks.find(item => item.id === "material"), music = task.subtasks.find(item => item.id === "music");
   if (!retryOnly || material.status === "failed") {
-    material.status = "running"; material.message = "按冻结的 C 类文本生成";
-    runMaterial(task).catch(() => finalizeTask(task));
+    material.status = "running"; material.message = retryOnly && task.bundle.visual_context ? "重试失败图片" : "AI 正在建立角色与画风连续性";
+    if (["material","all"].includes(task.simulate_failure)) setTimeout(() => { task.bundle.image_assets.filter(asset=>asset.status!=="succeeded").forEach(asset=>asset.status="failed"); material.status="failed"; material.message="模拟图片失败；可重试"; finalizeTask(task); }, 900);
+    else prepareAndRunMaterial(task, retryOnly).catch(err => { material.status="failed"; material.message=`视觉准备失败：${err?.message || "未知错误"}`; finalizeTask(task); });
   }
   if (!retryOnly || music.status === "failed") {
-    music.status = "running"; music.message = "连接本机 7871 音乐服务";
+    music.status = "running"; music.message = retryOnly && task.bundle.music_profile ? "重试本机音乐生成" : "AI 正在生成简洁音乐提示词";
     if (["music","all"].includes(task.simulate_failure)) setTimeout(() => { music.status = "failed"; music.message = "模拟 BGM 失败；图片不受影响"; finalizeTask(task); }, 1300);
-    else runMusic(task).catch(() => finalizeTask(task));
+    else prepareAndRunMusic(task, retryOnly).catch(err => { music.status="failed"; music.message=`音乐准备失败：${err?.message || "未知错误"}`; finalizeTask(task); });
   }
   persistState();
+}
+async function prepareAndRunMaterial(task, retryOnly=false) {
+  if (!retryOnly || !task.bundle.visual_context) {
+    const project=projects.get(task.project_id); if(!project)throw error("项目不存在",404);
+    task.bundle.visual_context=await buildVisualContext(project,task.bundle.selected_type,task.bundle.comic_style?.id);
+  }
+  task.message="图片与 BGM 正在并行生成"; task.progress=Math.max(task.progress,25); await persistState();
+  return runMaterial(task);
+}
+async function prepareAndRunMusic(task, retryOnly=false) {
+  if (!retryOnly || !task.bundle.music_profile) {
+    const project=projects.get(task.project_id); if(!project)throw error("项目不存在",404);
+    task.bundle.music_profile=await buildMusicProfile(project,task.bundle.selected_type);
+  }
+  task.message="图片与 BGM 正在并行生成"; task.progress=Math.max(task.progress,25); await persistState();
+  return runMusic(task);
 }
 async function runMaterial(task) {
   const material = task.subtasks.find(item => item.id === "material");
@@ -488,7 +508,7 @@ async function runMaterial(task) {
     let success = false, lastError;
     for (let attempt = 0; attempt < 2 && !success; attempt++) try {
       const panelBeats=asset.panels.map(panel=>`第${panel.panel_index}格：${panel.text}`).join("；");
-      const prompt = `竖版知乎故事分格漫画页，第 ${index + 1}/${task.bundle.image_assets.length} 页。全项目强制统一渲染规范：${task.bundle.visual_context.render_style}。题材视觉语汇：${asset.visual_preset_id || "editorial comic"}。严禁本页或不同页在实拍摄影、二次元动漫、平涂插画和3D渲染之间切换。整张图必须清楚分成 ${asset.panel_count} 个从上到下排列的横向漫画格，每格等宽，以醒目的白色横向间隔线分隔；每格只画一个连续镜头，镜头景别有变化，构图参考手机竖屏条漫。角色视觉圣经（所有格、所有页必须逐项严格复现，不得改变人物的性别呈现、年龄、脸型、发型、服装颜色和关键物件）：${JSON.stringify(task.bundle.visual_context.character_bible)}。固定时空与色彩：${task.bundle.visual_context.setting}；${task.bundle.visual_context.palette}。本页镜头顺序：${panelBeats}。每格顶部或侧边留出干净区域，供程序后续叠加中文旁白框或对白气泡。保持同一角色跨格、跨页可识别；不新增角色，不补写结局或真相。图像模型不要绘制任何文字、气泡、字母、数字、标志或水印。`;
+      const prompt = `竖版知乎故事分格漫画页，第 ${index + 1}/${task.bundle.image_assets.length} 页。用户已选择画风“${asset.visual_style_label}”：${asset.visual_style_prompt}。全项目强制统一渲染规范：${task.bundle.visual_context.render_style}。严禁本页或不同页擅自切换绘画媒介。整张图必须清楚分成 ${asset.panel_count} 个从上到下排列的横向漫画格，每格等宽，以醒目的白色横向间隔线分隔；每格只画一个连续镜头，镜头景别有变化，构图参考手机竖屏条漫。角色视觉圣经（所有格、所有页必须逐项严格复现，不得改变人物的性别呈现、年龄、脸型、发型、服装颜色和关键物件）：${JSON.stringify(task.bundle.visual_context.character_bible)}。固定时空与色彩：${task.bundle.visual_context.setting}；${task.bundle.visual_context.palette}。本页镜头顺序：${panelBeats}。每格顶部或侧边留出干净区域，供程序后续叠加中文旁白框或对白气泡。保持同一角色跨格、跨页可识别；不新增角色，不补写结局或真相。图像模型不要绘制任何文字、气泡、字母、数字、标志或水印。`;
       const response = await fetch(`${imageBaseUrl}/images/generations`, { method:"POST", headers:{ Authorization:`Bearer ${imageApiKey}`, "Content-Type":"application/json" }, body:JSON.stringify({ model:imageModel, prompt, size:"1024x1536", response_format:"b64_json", watermark:false }), signal:AbortSignal.timeout(300000) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.error) throw new Error(payload.error?.message || `Seedream 返回 ${response.status}`);

@@ -40,9 +40,9 @@ assert.equal(hookExport, candidate.rendered_text);
 let presetCount = 0;
 for (const category of ["modern_romance","ancient_romance","youth_campus","realistic_emotion","revenge_growth","mystery_detective","horror_rules","fantasy_highconcept"]) {
   const rows = await request(`/api/backgrounds?category=${category}`);
-  assert.equal(rows.backgrounds.length, 3); assert.ok(rows.backgrounds.every(item => /^\/assets\/preset-backgrounds\/library\/.+\.jpg$/.test(item.asset_url))); presetCount += rows.backgrounds.length;
+  assert.equal(rows.backgrounds.length, 25); assert.equal(rows.backgrounds.filter(item=>item.dimension==="genre").length,17); assert.equal(rows.backgrounds.filter(item=>item.dimension==="era").length,8); assert.ok(rows.backgrounds.every(item => /^\/assets\/preset-backgrounds\/library\/.+\.jpg$/.test(item.asset_url))); presetCount += rows.backgrounds.length;
 }
-assert.equal(presetCount, 24);
+assert.equal(presetCount, 200);
 const presetResponse = await fetch(`${base}/assets/preset-backgrounds/library/genre-realistic-emotion.jpg`);
 assert.equal(presetResponse.status, 200);
 assert.equal(presetResponse.headers.get("content-type"),"image/jpeg");
@@ -77,7 +77,7 @@ const packageGet = await fetch(`${base}${prepared.download_url}`);
 assert.equal(packageGet.status, 200);
 assert.equal((await packageGet.arrayBuffer()).byteLength, packageBytes.length);
 
-const comicTask = await post(`/api/projects/${id}/generate`, { selected_type:"comic", simulate_failure:"all" }, 202);
+const comicTask = await post(`/api/projects/${id}/generate`, { selected_type:"comic", comic_style:"watercolor-youth", simulate_failure:"all" }, 202);
 await new Promise(resolve => setTimeout(resolve, 1500));
 const comicDone = await request(`/api/tasks/${comicTask.id}`);
 assert.ok(comicDone.bundle.image_assets.length >= 2 && comicDone.bundle.image_assets.length <= 8);

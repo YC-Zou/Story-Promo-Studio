@@ -1,4 +1,4 @@
-const STORAGE_KEY = "zhihu-story-workbench-v10";
+const STORAGE_KEY = "zhihu-story-workbench-v11";
 const MAX_BODY = 50000;
 const TYPE_LABELS = {
   relationship_tension: "关系张力型",
@@ -11,7 +11,14 @@ const STATUS_LABELS = {
   queued: "已排队", running: "生成中", succeeded: "已完成",
   partially_failed: "部分失败", failed: "失败",
 };
-const STEP_ORDER = ["input", "hooks", "action", "background", "progress", "result"];
+const STEP_ORDER = ["input", "analysis", "hooks", "action", "style", "background", "progress", "result"];
+const COMIC_STYLES = [
+  { id:"polished-campus", name:"精致校园", sample:"参考 1", desc:"细腻半写实人物、明亮校园光影、清晰分镜", colors:["#9ccff5","#f5d8e5"] },
+  { id:"clear-anime", name:"清透日漫", sample:"参考 2", desc:"轻盈线稿、淡彩上色、富有动势的斜切分格", colors:["#dff4f4","#f7e8c8"] },
+  { id:"watercolor-youth", name:"水彩青春", sample:"参考 3", desc:"纸张水彩质感、柔和留白、抒情氛围", colors:["#b9dbea","#f5eee5"] },
+  { id:"cinematic-noir", name:"冷调电影", sample:"参考 4", desc:"低饱和蓝灰、电影镜头、克制写实情绪", colors:["#27354d","#8b91a2"] },
+  { id:"dark-mystery", name:"暗黑怪谈", sample:"参考 5", desc:"深色粗线、怪诞场景、强悬念叙事", colors:["#1c2529","#766251"] },
+];
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -25,8 +32,10 @@ const blankState = () => ({
   selectedHook: null,
   recommendation: null,
   materialType: "",
+  comicStyleId: "",
   backgrounds: [],
   backgroundId: "",
+  backgroundFilter: "all",
   task: null,
   history: [],
 });
@@ -37,6 +46,10 @@ let audioServerUrl = "";
 let audioContext = null;
 let audioSource = null;
 let simulatedFailure = "";
+let analysisTimer = null;
+let analysisStartedAt = 0;
+let videoObjectUrl = "";
+let assetObjectUrls = [];
 
 function loadState() {
   for (const raw of [sessionStorage.getItem(STORAGE_KEY), localStorage.getItem(STORAGE_KEY)]) try {
@@ -163,6 +176,7 @@ function renderAll() {
   showPage(state.page, false);
   renderHooks();
   renderAction();
+  renderStyles();
   renderBackgrounds();
   if (state.task) renderTask();
   if (state.page === "result") renderResult();
@@ -185,8 +199,10 @@ function showPage(page, persist = true) {
 
 function canVisit(page) {
   if (page === "input") return true;
+  if (page === "analysis") return state.page === "analysis";
   if (page === "hooks") return Boolean(state.analysis);
   if (page === "action") return Boolean(state.selectedHook);
+  if (page === "style") return Boolean(state.selectedHook && state.materialType === "comic");
   if (page === "background") return Boolean(state.selectedHook && state.materialType === "card" && state.backgrounds.length);
   if (page === "progress") return Boolean(state.task);
   if (page === "result") return Boolean(state.task && ["succeeded", "partially_failed"].includes(state.task.status));
@@ -210,6 +226,9 @@ async function analyze() {
   if (!validateInput()) return;
   const button = $("#analyzeBtn");
   setBusy(button, true, "正在分析全文…");
+  analysisStartedAt = Date.now();
+  showPage("analysis");
+  updateAnalysisProgress();
   try {
     const result = await api("/api/projects/analyze", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -224,22 +243,41 @@ async function analyze() {
     state.selectedHook = null;
     state.recommendation = null;
     state.task = null;
+    clearInterval(analysisTimer);
+    $("#analysisBar").style.width = "100%";
+    $("#analysisPercent").textContent = "100%";
+    $("#analysisPhase").textContent = "分析完成，正在打开候选钩子…";
     saveState();
     renderHooks();
+    await new Promise(resolve => setTimeout(resolve, 450));
     showPage("hooks");
     toast(`已生成 ${result.candidates.length} 条合格候选`);
   } catch (error) {
     $("#inputError").textContent = error.message;
-  } finally { setBusy(button, false); }
+    showPage("input");
+  } finally { clearInterval(analysisTimer); setBusy(button, false); }
+}
+
+function updateAnalysisProgress() {
+  clearInterval(analysisTimer);
+  const tick = () => {
+    const seconds = (Date.now() - analysisStartedAt) / 1000;
+    const percent = Math.min(94, Math.round(8 + 86 * (1 - Math.exp(-seconds / 58))));
+    const phases = percent < 30 ? "正在阅读全文并建立人物、事件与证据索引…" : percent < 60 ? "正在识别主类别、题材与时空…" : "正在一次性生成三种不同角度的钩子…";
+    $("#analysisBar").style.width = `${percent}%`;
+    $("#analysisPercent").textContent = `${percent}%`;
+    $("#analysisPhase").textContent = phases;
+  };
+  tick(); analysisTimer = setInterval(tick, 800);
 }
 
 function renderHooks() {
   if (!state.analysis) return;
   const profile = state.analysis.story_profile;
-  $("#analysisSummary").innerHTML = `<span>主类别 <b>${escapeHtml(profile.primary_category_label)}</b></span><span>写作语气 <b>${escapeHtml(state.analysis.content_analysis.tone_profile_label)}</b></span><span>叙事人称 <b>${state.analysis.content_analysis.narrative_person === "first_person" ? "第一人称" : "第三人称"}</b></span><span>候选 <b>${state.analysis.candidates.length} 条</b></span>`;
+  $("#analysisSummary").innerHTML = `<span>规则识别主类别 <b>${escapeHtml(profile.primary_category_label)}</b></span><span>AI 分析语气 <b>${escapeHtml(state.analysis.content_analysis.tone_profile_label)}</b></span><span>叙事人称 <b>${state.analysis.content_analysis.narrative_person === "first_person" ? "第一人称" : "第三人称"}</b></span><span>候选 <b>${state.analysis.candidates.length} 条</b></span><span>生成方式 <b>单次 API · 未追加模型质检</b></span>`;
   $("#hookGrid").innerHTML = state.analysis.candidates.map(candidate => {
     const selected = candidate.candidate_id === state.selectedCandidateId;
-    return `<button class="hook-card${selected ? " is-selected" : ""}" data-candidate="${escapeAttr(candidate.candidate_id)}" type="button"><header><span class="hook-type">${escapeHtml(TYPE_LABELS[candidate.hook_type] || candidate.hook_type)}</span><small>${selected ? "已选" : `推荐分 ${candidate.rank_score.toFixed(1)}`}</small></header><pre>${escapeHtml(candidate.rendered_text)}</pre><p>${escapeHtml(candidate.recommendation_reason)}</p><footer><span>${candidate.recommended_material === "comic" ? "更适合漫画" : "更适合单图"}</span><span>使用此候选</span></footer></button>`;
+    return `<button class="hook-card${selected ? " is-selected" : ""}" data-candidate="${escapeAttr(candidate.candidate_id)}" type="button"><header><span class="hook-type">${escapeHtml(TYPE_LABELS[candidate.hook_type] || candidate.hook_type)}</span><small>${selected ? "已选" : `推荐分 ${candidate.rank_score.toFixed(1)}`}</small></header><pre>${escapeHtml(candidate.rendered_text)}</pre><p>${escapeHtml(candidate.recommendation_reason)}</p><footer><span>AI 候选建议：${candidate.recommended_material === "comic" ? "漫画" : "宣传图"}</span><span>使用此候选</span></footer></button>`;
   }).join("");
   $$('[data-candidate]').forEach(button => button.onclick = () => selectCandidate(button.dataset.candidate));
   $("#hookEditor").value = state.hookDraft || "";
@@ -267,7 +305,7 @@ function renderValidation(result = null) {
   panel.className = "validation";
   if (result?.validation_status === "passed") {
     panel.classList.add("is-valid");
-    panel.innerHTML = `<b>校验通过</b> · 事实有据、未越过剧透边界；已重新识别钩子类型、情绪和 A/B 推荐。`;
+    panel.innerHTML = `<b>校验通过</b> · 事实有据、未越过剧透边界；已重新识别钩子类型、情绪和形式建议。`;
   } else if (result?.issues?.length) {
     panel.classList.add("is-invalid");
     panel.innerHTML = `<b>校验未通过</b><br>${result.issues.map(item => `“${escapeHtml(item.sentence)}” — ${escapeHtml(item.message)}`).join("<br>")}`;
@@ -306,21 +344,21 @@ async function confirmHook() {
 function renderAction() {
   if (!state.selectedHook || !state.recommendation) return;
   $("#finalHookText").textContent = state.selectedHook.final_text;
-  $("#comicScore").textContent = `ComicScore ${state.recommendation.comic_score}`;
-  $("#cardScore").textContent = `CardScore ${state.recommendation.card_score}`;
-  const recommended = state.recommendation.recommended_type === "comic" ? "A 类漫画" : "B 类单图";
-  $("#materialRecommendation").innerHTML = `<b>系统建议：${recommended}</b> · ${escapeHtml(state.recommendation.deciding_features.join("；"))}。你仍可选择任一形式。`;
+  $("#comicScore").textContent = `适配评分 ${state.recommendation.comic_score}`;
+  $("#cardScore").textContent = `适配评分 ${state.recommendation.card_score}`;
+  const recommended = state.recommendation.recommended_type === "comic" ? "连续漫画" : "单图宣传卡";
+  $("#materialRecommendation").innerHTML = `<b>形式建议：${recommended}</b> · 该建议由程序根据 AI 识别出的钩子类型、对白轮次和叙事节点计算，并非额外一次 AI 判断。${escapeHtml(state.recommendation.deciding_features.join("；"))}。两个入口均可分别制作。`;
 }
 
 async function chooseMaterial(type) {
   state.materialType = type;
   state.backgroundId = "";
   saveState();
-  if (type === "comic") return startGeneration("comic");
+  if (type === "comic") { renderStyles(); return showPage("style"); }
   try {
     const category = state.analysis.story_profile.primary_category;
     const result = await api(`/api/backgrounds?category=${encodeURIComponent(category)}&project_id=${encodeURIComponent(state.project.id)}`);
-    if (result.backgrounds.length !== 3) throw new Error("当前类别底图配置不完整，已阻止 B 类生成");
+    if (result.backgrounds.length !== 25) throw new Error("题材与时空底图库不完整，已阻止生成");
     state.backgrounds = result.backgrounds;
     renderBackgrounds();
     showPage("background");
@@ -330,32 +368,44 @@ async function chooseMaterial(type) {
 function renderBackgrounds() {
   if (!state.backgrounds.length) return;
   const shortText = groupShortLines(state.selectedHook?.selected_lines || []).join("\n");
-  $("#backgroundGrid").innerHTML = state.backgrounds.map(item => `<button class="background-option${item.id === state.backgroundId ? " is-selected" : ""}" data-background="${escapeAttr(item.id)}" type="button"><div class="background-art" style="--bg:${escapeAttr(item.css_background)}"><img src="${escapeAttr(item.thumbnail_url)}" alt="${escapeAttr(item.name)}底图"><pre>${escapeHtml(shortText)}</pre></div><footer><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small></footer></button>`).join("");
+  const visible = state.backgrounds.filter(item => state.backgroundFilter === "all" || state.backgroundFilter === "recommended" && item.recommended || item.dimension === state.backgroundFilter);
+  $("#backgroundGrid").innerHTML = visible.map(item => `<button class="background-option${item.id === state.backgroundId ? " is-selected" : ""}" data-background="${escapeAttr(item.id)}" type="button"><div class="background-art" style="--bg:${escapeAttr(item.css_background)}"><img src="${escapeAttr(item.thumbnail_url)}" alt="${escapeAttr(item.name)}底图"><span class="background-badge">${item.recommended ? "AI 相关" : item.dimension === "genre" ? "题材" : "时空"}</span><pre>${escapeHtml(shortText)}</pre></div><footer><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small></footer></button>`).join("");
   $$('[data-background]').forEach(button => button.onclick = () => {
     state.backgroundId = button.dataset.background;
     saveState(); renderBackgrounds();
   });
   $("#startCardBtn").disabled = !state.backgroundId;
   $("#backgroundHint").textContent = state.backgroundId ? "已选择 1 张底图" : "请选择一张底图";
+  $$('[data-bg-filter]').forEach(button => button.classList.toggle("is-active", button.dataset.bgFilter === state.backgroundFilter));
+}
+
+function renderStyles() {
+  const grid = $("#styleGrid"); if (!grid) return;
+  grid.innerHTML = COMIC_STYLES.map(item => `<button class="style-option${item.id === state.comicStyleId ? " is-selected" : ""}" data-comic-style="${item.id}" type="button"><div class="style-swatch" style="--a:${item.colors[0]};--b:${item.colors[1]}"><i></i><i></i><i></i></div><footer><span>${item.sample}</span><b>${item.name}</b><small>${item.desc}</small></footer></button>`).join("");
+  $$('[data-comic-style]').forEach(button => button.onclick = () => { state.comicStyleId = button.dataset.comicStyle; saveState(); renderStyles(); });
+  $("#startComicBtn").disabled = !state.comicStyleId;
+  $("#styleHint").textContent = state.comicStyleId ? `已选择：${COMIC_STYLES.find(item => item.id === state.comicStyleId)?.name}` : "请选择一种画风";
 }
 
 async function startGeneration(type = state.materialType) {
   if (!state.selectedHook || state.hookDirty) return toast("请先确认有效钩子");
   if (type === "card" && !state.backgroundId) return toast("请先选择底图");
-  const payload = { selected_type: type, background_id: type === "card" ? state.backgroundId : undefined, simulate_failure: simulatedFailure };
+  if (type === "comic" && !state.comicStyleId) return toast("请先选择漫画画风");
+  const payload = { selected_type: type, background_id: type === "card" ? state.backgroundId : undefined, comic_style: type === "comic" ? state.comicStyleId : undefined, simulate_failure: simulatedFailure };
   simulatedFailure = "";
   try {
     if (state.task && ["succeeded","partially_failed","failed"].includes(state.task.status) && !state.history.some(item => item.id === state.task.id)) state.history.push(clone(state.task));
+    state.materialType = type;
+    state.task = { id:"", project_id:state.project.id, status:"queued", progress:2, message:"正在创建生成任务…", subtasks:[{id:"material",label:type === "comic" ? "漫画图组" : "单图合成",status:"queued",message:"等待任务创建"},{id:"music",label:"BGM",status:"queued",message:"等待任务创建"}], bundle:{selected_type:type,image_assets:[]} };
+    renderTask(); showPage("progress");
     const task = await api(`/api/projects/${encodeURIComponent(state.project.id)}/generate`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
-    state.materialType = type;
     state.task = task;
     saveState();
     renderTask();
-    showPage("progress");
     resumeTask();
-  } catch (error) { toast(error.message); }
+  } catch (error) { state.task = null; showPage(type === "comic" ? "style" : "background"); toast(error.message); }
 }
 
 function resumeTask() {
@@ -369,6 +419,7 @@ async function pollTask() {
     state.task = await api(`/api/tasks/${encodeURIComponent(state.task.id)}`);
     saveState(); renderTask();
     if (["queued", "running"].includes(state.task.status)) pollTimer = setTimeout(pollTask, 700);
+    else if (["succeeded", "partially_failed"].includes(state.task.status)) { renderResult(); showPage("result"); }
   } catch (error) {
     $("#progressMessage").textContent = `状态读取失败：${error.message}`;
     pollTimer = setTimeout(pollTask, 2000);
@@ -405,6 +456,7 @@ function renderResult() {
   const task = state.task;
   if (!task) return;
   const packageLink = $("#packageDownloadLink"); packageLink.hidden = true; packageLink.removeAttribute("href");
+  assetObjectUrls.forEach(url=>URL.revokeObjectURL(url)); assetObjectUrls=[];
   const badge = $("#resultStatusBadge");
   badge.textContent = task.status;
   badge.dataset.status = task.status;
@@ -412,13 +464,15 @@ function renderResult() {
   const resultType = task.bundle?.selected_type || state.materialType;
   const resultHook = task.bundle?.selected_hook_profile || state.selectedHook;
   const metadata = task.bundle?.project_metadata || { title:state.project.title, author:state.project.author, source_url:state.project.sourceUrl };
-  $("#visualResultTitle").textContent = resultType === "comic" ? "A 类连续漫画" : "B 类单图宣传卡";
+  $("#visualResultTitle").textContent = resultType === "comic" ? `连续漫画${task.bundle?.comic_style?.label ? ` · ${task.bundle.comic_style.label}` : ""}` : "单图宣传卡";
   $("#assetCount").textContent = `${pages.length} 张`;
   $("#visualResults").innerHTML = pages.map((asset, index) => {
     const source=asset.image_url||asset.background_asset_url, isComic=resultType==="comic"&&asset.panels?.length;
     const copy=isComic ? `<div class="comic-page-overlay" style="--panels:${asset.panels.length}">${asset.panels.map(panel=>`<div class="comic-panel-copy is-${escapeAttr(panel.type)}"><span>${escapeHtml(panel.text)}</span></div>`).join("")}</div>` : `<pre>${escapeHtml(asset.text)}</pre>`;
-    return `<article class="visual-result"><div class="visual-canvas${isComic?" is-comic":""}" data-visual="${index}" style="--bg:${escapeAttr(asset.css_background)}">${source ? `<img src="${escapeAttr(source)}" alt="第 ${index + 1} 张视觉底图">` : ""}${copy}${asset.show_attribution ? `<small>《${escapeHtml(metadata.title)}》 · ${escapeHtml(metadata.author)} · AI 辅助 · 知乎阅读原作</small>` : ""}</div></article>`;
+    const downloadLabel=resultType === "comic" ? `第 ${index + 1} 页` : "宣传图";
+    return `<article class="visual-result"><div class="visual-canvas${isComic?" is-comic":""}" data-visual="${index}" style="--bg:${escapeAttr(asset.css_background)}">${source ? `<img src="${escapeAttr(source)}" alt="第 ${index + 1} 张视觉底图">` : ""}${copy}${asset.show_attribution ? `<small>《${escapeHtml(metadata.title)}》 · ${escapeHtml(metadata.author)} · AI 辅助 · 知乎阅读原作</small>` : ""}</div><button class="button ghost full asset-download" data-download-asset="${index}" type="button">准备${downloadLabel} PNG</button><a class="button primary full asset-download-link" data-asset-link="${index}" href="#" download hidden>下载${downloadLabel} PNG</a></article>`;
   }).join("");
+  $$('[data-download-asset]').forEach(button => button.onclick = async () => { const index=Number(button.dataset.downloadAsset); setBusy(button,true,"正在生成 PNG…"); try { const url=URL.createObjectURL(await canvasBlob(pages[index])); assetObjectUrls.push(url); const link=$(`[data-asset-link="${index}"]`);link.href=url;link.download=resultType === "comic" ? `${safeName(metadata.title)}-漫画-${String(index+1).padStart(2,"0")}.png` : `${safeName(metadata.title)}-宣传图.png`;link.hidden=false;button.hidden=true;toast("PNG 已准备，请点击下载链接保存"); } catch(error) { toast(`PNG 准备失败：${error.message}`); } finally { setBusy(button,false); } });
   $("#publishCopy").textContent = resultHook.final_text;
   $("#musicPreset").textContent = task.bundle?.music_profile?.preset_label || "未生成";
   $("#musicPrompt").textContent = task.bundle?.music_profile?.prompt || "未生成";
@@ -427,6 +481,7 @@ function renderResult() {
   const music = task.subtasks.find(item => item.id === "music");
   $("#audioState").textContent = music?.message || "";
   prepareAudio(music?.status === "succeeded", task.bundle?.audio_url);
+  resetVideo(music?.status === "succeeded" && pages.length > 0);
   const hasUrl = /^https?:\/\//i.test(metadata.source_url || "");
   $("#exportWarning").className = `export-warning${hasUrl ? "" : " is-error"}`;
   $("#exportWarning").textContent = hasUrl ? "发布包将包含作品署名、原作链接和 AI 辅助说明。" : "缺少有效原作链接：可以预览，但正式发布包导出已禁用。";
@@ -437,7 +492,7 @@ function renderResult() {
 function renderHistory() {
   const rows = (state.history || []).filter(item => item.id !== state.task?.id);
   $("#historyWrap").hidden = !rows.length;
-  $("#historyList").innerHTML = rows.map(item => `<button class="text-button" type="button" data-history-task="${escapeAttr(item.id)}">${item.bundle?.selected_type === "comic" ? "A 类漫画" : "B 类单图"} · ${escapeHtml(STATUS_LABELS[item.status] || item.status)}</button>`).join("");
+  $("#historyList").innerHTML = rows.map(item => `<button class="text-button" type="button" data-history-task="${escapeAttr(item.id)}">${item.bundle?.selected_type === "comic" ? "连续漫画" : "单图宣传卡"} · ${escapeHtml(STATUS_LABELS[item.status] || item.status)}</button>`).join("");
   $$('[data-history-task]').forEach(button => button.onclick = () => { const previous=state.history.find(item=>item.id===button.dataset.historyTask); if(!previous)return; if(state.task&&!state.history.some(item=>item.id===state.task.id))state.history.push(clone(state.task)); state.task=clone(previous); state.materialType=state.task.bundle?.selected_type||state.materialType; saveState(); renderResult(); showPage("result"); });
 }
 
@@ -448,6 +503,47 @@ function prepareAudio(available, serverUrl) {
   button.hidden = !audioServerUrl;
   button.disabled = false;
   button.textContent = "试听 BGM";
+}
+
+function resetVideo(enabled) {
+  if (videoObjectUrl) { URL.revokeObjectURL(videoObjectUrl); videoObjectUrl=""; }
+  const video=$("#videoPreview"), link=$("#videoDownloadLink"), button=$("#buildVideoBtn");
+  video.pause(); video.hidden=true; video.removeAttribute("src"); link.hidden=true; link.removeAttribute("href");
+  button.disabled=!enabled;
+  $("#videoState").textContent=enabled ? "点击生成后，浏览器会按 BGM 时长实时合成带声音的视频。" : "图片或 BGM 尚未成功，暂时无法合成视频。";
+}
+
+async function buildVideoPreview() {
+  if (!audioServerUrl || !state.task?.bundle?.image_assets?.length) return toast("图片与 BGM 均成功后才能生成视频");
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return toast("当前浏览器不支持视频合成，请使用最新版 Chrome 或 Edge");
+  const button=$("#buildVideoBtn"); setBusy(button,true,"正在实时合成…");
+  try {
+    const assets=state.task.bundle.image_assets;
+    const bitmaps=[];
+    for(const asset of assets) bitmaps.push(await createImageBitmap(await canvasBlob(asset)));
+    const audioData=await fetch(audioServerUrl).then(response=>{if(!response.ok)throw new Error("BGM 读取失败");return response.arrayBuffer();});
+    const context=new (window.AudioContext||window.webkitAudioContext)();
+    const decoded=await context.decodeAudioData(audioData.slice(0));
+    const canvas=Object.assign(document.createElement("canvas"),{width:720,height:960}),ctx=canvas.getContext("2d");
+    const canvasStream=canvas.captureStream(12),destination=context.createMediaStreamDestination();
+    const source=context.createBufferSource(); source.buffer=decoded; source.connect(destination);
+    const stream=new MediaStream([...canvasStream.getVideoTracks(),...destination.stream.getAudioTracks()]);
+    const mime=["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"].find(type=>MediaRecorder.isTypeSupported(type))||"";
+    const recorder=new MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:3000000}:undefined),chunks=[];
+    recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);};
+    const startedAt=context.currentTime;
+    const draw=()=>{const elapsed=Math.max(0,context.currentTime-startedAt),index=Math.min(bitmaps.length-1,Math.floor(elapsed/Math.max(.1,decoded.duration/bitmaps.length)));ctx.drawImage(bitmaps[index],0,0,720,960);};
+    draw(); const timer=setInterval(draw,1000/12);
+    const finished=new Promise((resolve,reject)=>{recorder.onerror=()=>reject(recorder.error||new Error("视频编码失败"));recorder.onstop=resolve;});
+    recorder.start(1000); source.start();
+    source.onended=()=>{clearInterval(timer);draw();recorder.stop();canvasStream.getTracks().forEach(track=>track.stop());};
+    await finished; await context.close(); bitmaps.forEach(bitmap=>bitmap.close());
+    const blob=new Blob(chunks,{type:mime||"video/webm"}); if(!blob.size)throw new Error("视频文件为空");
+    if(videoObjectUrl)URL.revokeObjectURL(videoObjectUrl); videoObjectUrl=URL.createObjectURL(blob);
+    const video=$("#videoPreview"),link=$("#videoDownloadLink"); video.src=videoObjectUrl;video.hidden=false;link.href=videoObjectUrl;link.download=`${safeName(state.project.title)}-${state.task.bundle.selected_type === "comic" ? "漫画" : "宣传图"}.webm`;link.hidden=false;
+    $("#videoState").textContent=`已合成 ${decoded.duration.toFixed(1)} 秒 WebM 视频（图片 + BGM）。`;
+  } catch(error) { toast(`视频生成失败：${error.message}`); }
+  finally { setBusy(button,false); }
 }
 
 function parsePcmWav(arrayBuffer) {
@@ -538,13 +634,13 @@ async function exportPackage() {
     }
     const projectJson = { exported_at: new Date().toISOString(), story: metadata, selected_hook_profile: resultHook, material_type: resultType, task: state.task };
     entries.push(textEntry("project.json", JSON.stringify(projectJson, null, 2)));
-    entries.push(textEntry("README.txt", `《${metadata.title}》\n作者：${metadata.author}\n知乎原作：${metadata.source_url}\n物料：${resultType === "comic" ? "A 类漫画" : "B 类单图"}\nAI 辅助生成，请发布前由作者复核。`));
+    entries.push(textEntry("README.txt", `《${metadata.title}》\n作者：${metadata.author}\n知乎原作：${metadata.source_url}\n物料：${resultType === "comic" ? "连续漫画" : "单图宣传卡"}\nAI 辅助生成，请发布前由作者复核。`));
     const packageBlob=buildZip(entries);
     const prepared=await fetch(`/api/tasks/${encodeURIComponent(state.task.id)}/package`,{method:"POST",headers:{"Content-Type":"application/zip"},body:packageBlob});
     const preparedResult=await prepared.json().catch(()=>({}));if(!prepared.ok)throw new Error(preparedResult.error||`发布包暂存失败（${prepared.status}）`);
     const link = $("#packageDownloadLink");
     link.href = preparedResult.download_url;
-    link.download = `${safeName(metadata.title)}-${resultType === "comic" ? "A类漫画" : "B类单图"}.zip`;
+    link.download = `${safeName(metadata.title)}-${resultType === "comic" ? "连续漫画" : "单图宣传卡"}.zip`;
     link.hidden = false;
     toast("发布包已准备，请点击下载链接保存");
   } catch (error) { toast(`导出失败：${error.message}`); }
@@ -629,7 +725,9 @@ function bindEvents() {
   $("#hookEditor").addEventListener("input", event => { state.hookDraft = event.target.value; state.hookDirty = true; state.selectedHook = null; updateHookLength(); renderValidation(); saveState(); });
   $("#confirmHookBtn").onclick = confirmHook;
   $$('[data-material]').forEach(button => button.onclick = () => chooseMaterial(button.dataset.material));
+  $("#startComicBtn").onclick = () => startGeneration("comic");
   $("#startCardBtn").onclick = () => startGeneration("card");
+  $$('[data-bg-filter]').forEach(button => button.onclick = () => { state.backgroundFilter=button.dataset.bgFilter; saveState(); renderBackgrounds(); });
   $("#retryTaskBtn").onclick = retryTask;
   $("#viewResultBtn").onclick = () => { renderResult(); showPage("result"); };
   $("#copyHookBtn").onclick = () => copyText(state.selectedHook.final_text);
@@ -638,7 +736,8 @@ function bindEvents() {
   $("#exportPackageBtn").onclick = exportPackage;
   $("#packageDownloadLink").onclick = () => toast("已提交浏览器下载");
   $("#bgmPlayBtn").onclick = toggleAudioPreview;
-  $("#otherMaterialBtn").onclick = () => { state.materialType = state.materialType === "comic" ? "card" : "comic"; saveState(); chooseMaterial(state.materialType); };
+  $("#buildVideoBtn").onclick = buildVideoPreview;
+  $("#otherMaterialBtn").onclick = () => showPage("action");
   $("#uploadBtn").onclick = () => $("#fileInput").click();
   $("#fileInput").onchange = event => { const file = event.target.files[0]; if (file) importFile(file); event.target.value = ""; };
   $("#pasteBtn").onclick = async () => { try { $("#bodyInput").value = await navigator.clipboard.readText(); updateBodyCount(); syncProjectFromInputs(); } catch { toast("浏览器未开放剪贴板读取权限，请直接粘贴"); } };
@@ -647,11 +746,6 @@ function bindEvents() {
   $$('[data-action="back-hooks"]').forEach(button => button.onclick = () => { state.hookDraft = state.selectedHook.final_text; state.hookDirty = true; showPage("hooks"); renderHooks(); });
   $$('[data-action="go-action"]').forEach(button => button.onclick = () => showPage("action"));
   $$('[data-step]').forEach(button => button.onclick = () => { if (canVisit(button.dataset.step)) { if (button.dataset.step === "result") renderResult(); showPage(button.dataset.step); } });
-  const dialog = $("#confirmNewDialog");
-  $("#newProjectBtn").onclick = () => dialog.showModal();
-  $('[data-dialog-cancel]').onclick = () => dialog.close();
-  $('[data-dialog-confirm]').onclick = () => { clearTimeout(pollTimer); state = blankState(); saveState(); hydrateInputs(); renderAll(); dialog.close(); };
-  dialog.onclick = event => { if (event.target === dialog) dialog.close(); };
 }
 
 window.NovelPromoWorkbench = {
