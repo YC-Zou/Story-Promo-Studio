@@ -464,6 +464,9 @@ function renderResult() {
   const resultType = task.bundle?.selected_type || state.materialType;
   const resultHook = task.bundle?.selected_hook_profile || state.selectedHook;
   const metadata = task.bundle?.project_metadata || { title:state.project.title, author:state.project.author, source_url:state.project.sourceUrl };
+  const posterEditorLink = $("#posterEditorLink");
+  posterEditorLink.hidden = resultType !== "card" || !pages.length;
+  if (!posterEditorLink.hidden) posterEditorLink.href = `./poster-editor.html?task_id=${encodeURIComponent(task.id)}&asset=0`;
   $("#visualResultTitle").textContent = resultType === "comic" ? `连续漫画${task.bundle?.comic_style?.label ? ` · ${task.bundle.comic_style.label}` : ""}` : "单图宣传卡";
   $("#assetCount").textContent = `${pages.length} 张`;
   $("#visualResults").innerHTML = pages.map((asset, index) => {

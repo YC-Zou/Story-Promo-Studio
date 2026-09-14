@@ -1,0 +1,21 @@
+.poster-editor-entry {
+  min-height: 52px;
+  padding: 9px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  border-color: #b7cae8;
+  background: #f3f7fd;
+  color: #174f9f;
+  text-decoration: none;
+}
+
+.poster-editor-entry[hidden] { display: none; }
+.poster-editor-entry span { font-size: 11px; font-weight: 800; }
+.poster-editor-entry small {
+  margin-top: 3px;
+  color: #6680a4 !important;
+  font-size: 8px !important;
+  letter-spacing: 0 !important;
+}

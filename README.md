@@ -37,6 +37,7 @@ An AI-powered studio that turns Zhihu stories into compelling hooks, comic seque
 - 使用内置 Stable Audio 3 TFLite 服务在本机 CPU 上生成 BGM。
 - 并行处理图片与音乐，失败子任务可重试。
 - 单独下载每页漫画或宣传图，并在浏览器中把图片与 BGM 合成为可预览、下载的 WebM 视频。
+- 从单图结果进入独立的故事海报设计器，使用模板、文字、基础元素、底图与图层进行二次创作；设计自动保存，可导出 1080 × 1440 PNG。
 - 导出包含视觉物料、发布文案及可选 BGM 的 ZIP 发布包。
 - 支持刷新和服务重启后的任务状态恢复。
 
@@ -48,7 +49,9 @@ docs/product/prompts/                正式模型提示词
 scripts/                             启动脚本与素材维护工具
 tests/                               静态与 API 回归测试
 third_party/stable-audio-3-tflite/   Stable Audio 3 CPU/TFLite 源码
+third_party/fabric/                   海报画布编辑器（Fabric.js）
 app.js                               浏览器端应用
+poster-editor.html/.css/.js          独立故事海报设计器
 server.mjs                           Node.js 服务端
 index.html / styles.css              页面与样式
 ```
@@ -67,6 +70,6 @@ node tests/smoke.mjs
 
 ## 第三方组件
 
-`third_party/stable-audio-3-tflite/` 来源于 Stability AI 的 Stable Audio 3 项目，并保留其 MIT License。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。模型权重需在首次运行时另行下载，并受其来源页面所列许可条款约束。
+`third_party/stable-audio-3-tflite/` 与 `third_party/fabric/` 分别包含 Stable Audio 3 源码和 Fabric.js 画布库，并保留各自的 MIT License。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。Stable Audio 模型权重需在首次运行时另行下载，并受其来源页面所列许可条款约束。
 
 本仓库的应用代码尚未声明开源许可证；公开发布前请由仓库所有者选择并添加合适的 `LICENSE`。
