@@ -195,7 +195,19 @@ rank_score = 2.0*factual_accuracy + 2.0*unique_point_coverage + 1.5*tone_match +
 
 best_hook.text 必须按以上规则由最佳候选 lines 渲染。用户界面会同时展示三条候选，best_candidate_id 只用于默认突出显示，不代表替用户自动选择。
 
-八、输出
+八、额外生成精华对话
+
+在同一次响应中额外返回一份 `highlight_dialogue`。它是独立的手机聊天脚本，不是第四条传播钩子，不进入 `candidate_plan`、`candidates`、评分、排序或 `best_candidate_id`，也不得改变三条传播钩子的任何规则。
+
+- 从全文中选择人物关系、冲突或情绪张力最强的一段真实对话，优先保留原作台词；只允许为手机聊天的连贯性做轻微删减或代词补全，不得新增人物关系、事实、结果或结局。
+- 必须有且只有 2 位参与者，分别位于 left 与 right；使用作品中的人物称呼，无法可靠判断姓名时使用中性的“对方”和“我”。
+- 输出 5—8 条消息，至少两位参与者都发言；按原作事件顺序排列，并停在关键答案或结局揭晓之前。
+- 每条消息 2—34 个非空白字符，纯文本，不包含说话人前缀，不使用舞台说明；优先逐字引用，轻微改写时标记 `lightly_adapted`。
+- 每条消息必须带至少一个存在于 `evidence_pool` 的 `source_refs`。`source_refs` 应支持该消息中的具体事实或原台词。
+- `target_duration_seconds` 固定为 15，供后续聊天截图与短视频共用。
+- 表情包不是必选项。本阶段只输出文本消息，可用 `sticker_hint` 给出可选情绪关键词；没有必要时填空字符串。
+
+九、输出
 
 只输出一个合法 JSON 对象，不要 Markdown 或代码围栏。字符串换行写成 \n，不得使用未转义反斜杠。
 
@@ -268,6 +280,28 @@ best_hook.text 必须按以上规则由最佳候选 lines 渲染。用户界面�
       "rank_score": 0
     }
   ],
+  "highlight_dialogue": {
+    "title": "精华对话",
+    "scene_summary": "不剧透地概括这段对话发生的场景",
+    "participants": [
+      { "id": "p1", "display_name": "人物称呼", "side": "left" },
+      { "id": "p2", "display_name": "人物称呼", "side": "right" }
+    ],
+    "messages": [
+      {
+        "message_id": "M1",
+        "speaker_id": "p1",
+        "type": "text",
+        "text": "来自正文的精华台词",
+        "source_refs": ["E2"],
+        "adaptation": "verbatim",
+        "sticker_hint": ""
+      }
+    ],
+    "source_refs": ["E2"],
+    "spoiler_risk": "low",
+    "target_duration_seconds": 15
+  },
   "best_candidate_id": "C1",
   "best_hook": {
     "text": "严格按最佳候选 lines 渲染后的文本",
@@ -289,4 +323,5 @@ best_hook.text 必须按以上规则由最佳候选 lines 渲染。用户界面�
 5. 校验每条 line 的长度、类型、禁用标点及 `source_refs`；
 6. 校验引用存在于 `evidence_pool`；
 7. 根据 `lines` 重新渲染候选文本和 `best_hook.text`；
-8. 单条失败时调用定向重写接口，只返回一个候选，不重新运行完整 Prompt。
+8. 校验 `highlight_dialogue` 独立存在、恰好两位参与者、5—8 条消息、左右双方均发言、消息长度及证据引用合法；
+9. 单条失败时调用定向重写接口，只返回一个候选，不重新运行完整 Prompt。

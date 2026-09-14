@@ -8,6 +8,7 @@ const port=43173;
 for(const file of ["server.mjs","app.js","poster-editor.js"])execFileSync(process.execPath,["--check",file],{stdio:"inherit"});
 const html=await readFile("index.html","utf8");
 for(const forbidden of ["推荐分","适配评分","AI Prompt","Negative Prompt",">queued<",">succeeded<"])if(html.includes(forbidden))throw new Error(`用户界面仍包含内部文案：${forbidden}`);
+for(const required of ["highlightDialogueCard","chatStudioDialog","downloadChatImageBtn","buildChatVideoBtn"])if(!html.includes(required))throw new Error(`精华对话入口缺失：${required}`);
 for(const file of ["index.html","styles.css","app.js","poster-editor.html","poster-editor.css","poster-editor.js","third_party/fabric/fabric.min.js"])await access(file);
 const runtime=await mkdtemp(join(tmpdir(),"story-promo-test-"));
 const server=spawn(process.execPath,[resolve("server.mjs")],{env:{...process.env,PORT:String(port),APP_MODE:"test",NODE_ENV:"test",RUNTIME_DIR:runtime,OPENAI_API_KEY:"",OPENAI_NEXT_API_KEY:""},stdio:["ignore","pipe","pipe"]});
