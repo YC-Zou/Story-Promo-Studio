@@ -464,7 +464,7 @@ function showPreflight(type=state.materialType){
   const background=state.backgrounds.find(item=>item.id===state.backgroundId);
   const beats=(state.selectedHook?.selected_lines||[]).slice(0,pageCount).map((line,index)=>`<li>${escapeHtml(line.text)}</li>`).join("");
   $("#preflightContent").innerHTML=isComic?`<dl><div><dt>预计页数</dt><dd>${pageCount} 页</dd></div><div><dt>文案摘要</dt><dd><ol>${beats}</ol></dd></div><div><dt>等待说明</dt><dd>${health?.mode==="demo"||health?.mode==="test"?"演示素材通常会较快完成":"生成需要一些时间，具体取决于服务响应。"}</dd></div></dl>`:`<dl><div><dt>已选背景</dt><dd>${escapeHtml(background?.name||"已保存背景")}</dd></div><div><dt>画面文案</dt><dd>${escapeHtml((state.posterDesign?.lines||[]).join(" / "))}</dd></div><div><dt>等待说明</dt><dd>${health?.mode==="demo"||health?.mode==="test"?"演示素材通常会较快完成":"生成需要一些时间，具体取决于服务响应。"}</dd></div></dl>`;
-  if(!/^https:\/\/(?:www\.)?zhihu\.com\//i.test(state.project.sourceUrl||""))$("#preflightContent").insertAdjacentHTML("beforeend",'<p class="preflight-warning">你还没有填写知乎原作链接。可以继续生成预览，但填写链接后才能导出发布素材。</p>');
+  if(!/^https:\/\/(?:www\.)?zhihu\.com\//i.test(state.project.sourceUrl||""))$("#preflightContent").insertAdjacentHTML("beforeend",`<p class="preflight-warning">${(health?.mode==="demo"||health?.mode==="test")&&state.project.sampleId?"授权样例可以导出演示素材包；没有原作链接的素材不可直接发布。":"你还没有填写知乎原作链接。可以继续生成预览，但填写链接后才能导出发布素材。"}</p>`);
   $("#preflightMusicInput").checked=Boolean(state.musicEnabled);
   $("#preflightConfirmBtn").textContent=isComic?"开始生成连续漫画":"开始生成单图故事卡";
   $("#preflightDialog").showModal();
@@ -592,9 +592,12 @@ function renderResult() {
   prepareAudio(music?.status === "succeeded", task.bundle?.audio_url);
   resetVideo(music?.status === "succeeded" && pages.length > 0);
   const hasUrl = /^https:\/\/(?:www\.)?zhihu\.com\//i.test(metadata.source_url || "");
-  $("#exportWarning").className = `export-warning${hasUrl ? "" : " is-error"}`;
-  $("#exportWarning").textContent = hasUrl ? "发布包将包含作品名、作者署名、知乎原作链接和 AI 辅助生成说明。" : "请填写有效的知乎原作链接后再导出发布素材。";
-  $("#exportPackageBtn").disabled = !hasUrl || !pages.length;
+  const demoSample = !hasUrl && (health?.mode==="demo"||health?.mode==="test") && Boolean(state.project.sampleId);
+  $("#exportWarning").className = `export-warning${hasUrl||demoSample ? "" : " is-error"}`;
+  $("#exportWarning").textContent = hasUrl ? "发布包将包含作品名、作者署名、知乎原作链接和 AI 辅助生成说明。" : demoSample ? "可导出演示素材包；因缺少原作链接，素材不可直接发布。" : "请填写有效的知乎原作链接后再导出发布素材。";
+  $("#exportPackageBtn").textContent = demoSample ? "准备演示素材包" : "准备发布包";
+  $("#packageDownloadLink").textContent = demoSample ? "下载演示素材包" : "下载宣传素材包";
+  $("#exportPackageBtn").disabled = !(hasUrl||demoSample) || !pages.length;
   renderHistory();
 }
 
@@ -744,9 +747,9 @@ async function exportPackage() {
     for(let i=0;i<assets.length;i++){const blob=await canvasBlob(assets[i]),saved=await fetch(`/api/tasks/${encodeURIComponent(state.task.id)}/final-images/${i}`,{method:"POST",headers:{"Content-Type":"image/png"},body:blob});if(!saved.ok)throw new Error((await saved.json().catch(()=>({}))).error||`第 ${i+1} 张图片准备失败`);}
     const link = $("#packageDownloadLink");
     link.href = exportInfo.download_url;
-    link.download = `${safeName(metadata.title)}-宣传素材.zip`;
+    link.download = `${safeName(metadata.title)}-${!metadata.source_url&&state.project.sampleId?"演示素材":"宣传素材"}.zip`;
     link.hidden = false;
-    toast("发布包已准备好，请点击下载。");
+    toast("素材包已准备好，请点击下载。");
     window.dispatchEvent(new CustomEvent("story-complete",{detail:{key:state.task.id,type:"export"}}));
   } catch (error) { toast(`导出失败：${error.message}`); }
   finally { setBusy(button, false); }

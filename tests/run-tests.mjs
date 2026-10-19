@@ -29,12 +29,28 @@ try{
   try{
     for(let attempt=0;attempt<50;attempt++){try{if((await fetch(`http://127.0.0.1:${demoPort}/api/health`)).ok)break;}catch{}await new Promise(resolve=>setTimeout(resolve,100));}
     const base=`http://127.0.0.1:${demoPort}`,sampleList=await fetch(`${base}/api/samples`).then(response=>response.json()),sample=await fetch(`${base}/api/samples/${sampleList.samples[0].work_id}`).then(response=>response.json());
-    const analyzed=await fetch(`${base}/api/projects/analyze`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:sample.title,author:sample.author_name,source_url:"https://www.zhihu.com/question/1/answer/2",authorized:true,body:sample.body,labels:sample.labels,sample_id:sample.work_id})}).then(response=>response.json());
+    const analyzed=await fetch(`${base}/api/projects/analyze`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:sample.title,author:sample.author_name,source_url:"",authorized:true,body:sample.body,labels:sample.labels,sample_id:sample.work_id})}).then(response=>response.json());
     const candidate=analyzed.candidates[0],selected=await fetch(`${base}/api/projects/${analyzed.story_profile.project_id}/select-hook`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({candidate_id:candidate.candidate_id,final_text:candidate.rendered_text})});
     if(!selected.ok)throw new Error("演示模式文案确认失败");
     const backgrounds=await fetch(`${base}/api/backgrounds?category=${analyzed.story_profile.primary_category}`).then(response=>response.json());
     const rejected=await fetch(`${base}/api/projects/${analyzed.story_profile.project_id}/generate`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({selected_type:"card",background_id:backgrounds.backgrounds[0].id,simulate_failure:"music"})});
     if(rejected.status!==400)throw new Error(`演示/生产接口应拒绝 simulate_failure，实际 ${rejected.status}`);
+    const generated=await fetch(`${base}/api/projects/${analyzed.story_profile.project_id}/generate`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({selected_type:"card",background_id:backgrounds.backgrounds[0].id,music_enabled:false})}).then(response=>response.json());
+    let completed;
+    for(let attempt=0;attempt<40;attempt++){
+      completed=await fetch(`${base}/api/tasks/${generated.id}`).then(response=>response.json());
+      if(completed.status==="succeeded")break;
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    if(completed?.status!=="succeeded")throw new Error("演示模式素材未完成");
+    const exportInfo=await fetch(`${base}/api/projects/${analyzed.story_profile.project_id}/export?task_id=${generated.id}`).then(response=>response.json());
+    if(!exportInfo.download_url)throw new Error("无原作链接的授权样例未能导出演示包");
+    const tinyPng=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","base64");
+    const image=await fetch(`${base}/api/tasks/${generated.id}/final-images/0`,{method:"POST",headers:{"Content-Type":"image/png"},body:tinyPng});
+    if(image.status!==201)throw new Error("演示模式最终图片保存失败");
+    const packageResponse=await fetch(`${base}${exportInfo.download_url}`);
+    const packageText=Buffer.from(await packageResponse.arrayBuffer()).toString("utf8");
+    if(packageResponse.status!==200||!packageText.includes("演示说明.txt")||!packageText.includes('"demo_only": true'))throw new Error("演示包未明确标注仅供体验");
   }finally{demoServer.kill();await rm(demoRuntime,{recursive:true,force:true});}
 }finally{
   server.kill();
